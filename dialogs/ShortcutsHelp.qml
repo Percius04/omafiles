@@ -59,12 +59,13 @@ Item {
         Repeater {
           model: [
             { key: "j / k / ↓ / ↑", action: "Move down / up" },
+            { key: "Shift+j / k / ↓ / ↑", action: "Extend selection down / up" },
             { key: "h / Backspace", action: "Go up a directory" },
-            { key: "Alt+← / Alt+→", action: "Back / forward" },
             { key: "l / Enter", action: "Open (enter directory / launch file)" },
+            { key: "Alt+← / Alt+→", action: "Back / forward (per panel)" },
             { key: "gg / Shift+G", action: "Jump to top / bottom" },
-            { key: "Space", action: "Toggle preview" },
-            { key: "/", action: "Search files across the whole system (indexed)" },
+            { key: "Space", action: "Toggle preview (Quick Look)" },
+            { key: "/ · Ctrl+F", action: "Search files (name; content: to search inside)" },
             { key: ": / Ctrl+P", action: "Command palette" },
             { key: "Ctrl+A", action: "Select all" },
             { key: "Ctrl+Shift+A", action: "Select none" },
@@ -75,16 +76,16 @@ Item {
             { key: "Ctrl+Z", action: "Undo" },
             { key: "Ctrl+Shift+Z / Ctrl+Y", action: "Redo" },
             { key: "s / Shift+S", action: "Cycle sort field / reverse order" },
-            { key: "Ctrl+L", action: "Edit path directly" },
+            { key: "Ctrl+L", action: "Edit path (Tab completes, ↑/↓ pick)" },
             { key: "Ctrl+Shift+N", action: "New folder" },
             { key: "Ctrl+N", action: "New file" },
-            { key: "Ctrl+T / Ctrl+\\", action: "New tab (new panel)" },
-            { key: "Ctrl+W / Ctrl+Tab", action: "Close tab / next tab" },
+            { key: "Ctrl+T / Ctrl+\\", action: "New panel" },
+            { key: "Ctrl+W / Ctrl+Tab", action: "Close active panel / next panel" },
             { key: "Ctrl+H", action: "Toggle hidden files" },
             { key: "Shift+Enter", action: "Open a terminal here" },
             { key: "F5", action: "Refresh" },
             { key: "?", action: "Toggle this help" },
-            { key: "Escape", action: "Close search, preview, or the active tab" }
+            { key: "Escape", action: "Close search, preview, or the active panel" }
           ]
 
           Row {
