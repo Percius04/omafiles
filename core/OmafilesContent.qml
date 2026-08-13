@@ -279,6 +279,25 @@ Item {
     // names, instead of one summon (and one tab) per URI.
     var selectPart = nlIdx >= 0 ? payload.substring(nlIdx + 1) : ""
     var selectNames = selectPart ? selectPart.split("\x1f") : []
+
+    if (selectPart.indexOf("picker:") === 0) {
+      var parts = selectPart.split(":")
+      if (parts.length >= 4) {
+        PickerState.active = true
+        PickerState.requestId = parts[1]
+        PickerState.mode = parts[2]
+        PickerState.multiple = (parts[3] === "true")
+        PickerState.suggestedName = parts.slice(4).join(":")
+      }
+      selectNames = []
+    } else {
+      PickerState.active = false
+      PickerState.requestId = ""
+      PickerState.mode = "open-file"
+      PickerState.multiple = false
+      PickerState.suggestedName = ""
+    }
+
     var targetPath = (folderPart && folderPart.charAt(0) === "/") ? folderPart : ""
 
     if (targetPath) NavState.pendingSelectNames = selectNames
@@ -325,8 +344,47 @@ Item {
     if (!restoringSession && !ArchiveState.inArchive) root.startDirWatch(NavState.currentPath)
   }
 
+  function cancelPicker() {
+    if (PickerState.active && PickerState.requestId) {
+      var reqId = PickerState.requestId
+      PickerState.active = false
+      PickerState.requestId = ""
+      Detached.run([
+        "dbus-send",
+        "--session",
+        "--type=method_call",
+        "--dest=org.freedesktop.impl.portal.desktop.omafiles",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
+        "string:" + reqId,
+        "uint32:1",
+        "string:[]"
+      ])
+    }
+    root.close()
+    root.requestClose()
+  }
+
   function close() {
-    registry.persistence.saveSession()
+    if (PickerState.active && PickerState.requestId) {
+      var reqId = PickerState.requestId
+      PickerState.active = false
+      PickerState.requestId = ""
+      Detached.run([
+        "dbus-send",
+        "--session",
+        "--type=method_call",
+        "--dest=org.freedesktop.impl.portal.desktop.omafiles",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
+        "string:" + reqId,
+        "uint32:1",
+        "string:[]"
+      ])
+    }
+    if (!PickerState.active) {
+      registry.persistence.saveSession()
+    }
     root.opened = false
     root.stopDirWatch()
     EditModeState.renamingIndex = -1
@@ -356,6 +414,8 @@ Item {
     ConflictState.bulkRenameConflictOpen = false
     ConflictState.pendingBulkRename = null
     DialogsState.connectServerOpen = false
+    PickerState.active = false
+    PickerState.requestId = ""
   }
 
   // User-initiated close (Esc, closing the last tab, the window's close
@@ -364,6 +424,7 @@ Item {
   // frontend bootstrap) decides whether that means notifying the host or closing
   // directly, without this file knowing anything about Quickshell.
   signal closeRequested()
+  signal pickerSubmitRequested()
 
   function requestClose() {
     root.closeRequested()

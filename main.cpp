@@ -333,7 +333,7 @@ int runNormal(int argc, char *argv[]) {
   // for D-Bus activation), so it is matched to this window via
   // StartupWMClass=omafiles in the .desktop itself -> the dock/taskbar resolves
   // Icon=omafiles without changing the app_id (Phase 29).
-  app.setDesktopFileName(QStringLiteral("omafiles"));
+
 
   // First positional argument = path/URI/payload to open (empty = normal
   // start, which restores the previous session like the Quickshell frontend).
@@ -345,10 +345,20 @@ int runNormal(int argc, char *argv[]) {
     break;
   }
 
+  // Check if this is a file-chooser picker payload
+  const bool isPicker = payload.contains(QLatin1String("picker:"));
+
+  if (isPicker) {
+    app.setDesktopFileName(QStringLiteral("omafiles-picker"));
+  } else {
+    app.setDesktopFileName(QStringLiteral("omafiles"));
+  }
+
   // Single instance: if there is already an Omafiles open, deliver it the payload
   // (it will navigate/select and bring itself to the front) and exit without
   // opening another window. If not, this invocation becomes the server instance.
-  if (SingleInstance::deliverToRunning(payload)) return 0;
+  // Picker instances run independently as separate transient windows.
+  if (!isPicker && SingleInstance::deliverToRunning(payload)) return 0;
 
   // qs.Ui uses QtQuick.Controls (Button/TextField) -- Basic is the style that
   // does not depend on any extra native backend, the safest.

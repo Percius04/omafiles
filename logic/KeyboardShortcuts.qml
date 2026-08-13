@@ -134,6 +134,7 @@ Item {
       // whole window, behavior we no longer want.
       if (NavState.searching) hostSearchOps.exitSearch()
       else if (PreviewState.previewOpen) PreviewState.previewOpen = false
+      else if (PickerState.active) hostRoot.cancelPicker()
       else if (TabsState.tabs.length > 1) hostTabOps.closeTab()
       event.accepted = true
     } else if (event.key === Qt.Key_Backspace || (event.key === Qt.Key_H && event.modifiers === Qt.NoModifier)) {

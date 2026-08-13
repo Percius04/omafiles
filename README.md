@@ -240,7 +240,7 @@ Optional — each feature degrades gracefully if its tool is missing:
 | `python-pygments` (`pygmentize`) | syntax-highlighted text preview |
 | `poppler` (`pdftoppm`) | PDF preview |
 | `gvfs` / `gvfs-smb` | network locations (SFTP/FTP/WebDAV / SMB) |
-| `python-gobject` (Gio) | the "Show in file manager" D-Bus service |
+| `python-gobject` (Gio) | the D-Bus services ("Show in file manager" and FileChooser portal) |
 
 ## System integration
 
@@ -248,6 +248,7 @@ Omafiles sets itself as the system's default file manager automatically on first
 
 - **Opening directories** (`xdg-open`, "Open folder" actions): a `~/.local/share/applications/io.github.percius04.omafiles.desktop` (a reverse-DNS ID, required for D-Bus activation) with `MimeType=inode/directory`, set via `xdg-mime default`.
 - **"Show in file manager"** (Firefox downloads, GTK/Qt "reveal in folder"): these go over the `org.freedesktop.FileManager1` D-Bus interface, not `.desktop`/`xdg-mime`, and Nautilus normally owns it. Omafiles ships a user-level service file for the same bus name (`~/.local/share/dbus-1/services/`), which takes priority over Nautilus's system one, backed by `scripts/dbus-filemanager1.py`.
+- **File Chooser Portal** (Save/Open dialogs from browser and GTK apps): these go over the `org.freedesktop.impl.portal.FileChooser` interface. Omafiles implements this portal backend via a user-level D-Bus service (`scripts/dbus-filechooser.py`), registering it as the preferred backend in `portals.conf` (and desktop-specific files like `hyprland-portals.conf`). Picker dialogs run with window class / `app_id` `omafiles-picker` so window managers can float and center them (e.g. in Hyprland: `windowrulev2 = float, class:^(omafiles-picker)$` and `windowrulev2 = size 900 600, class:^(omafiles-picker)$`).
 
 This is idempotent and only runs once (tracked in `~/.local/state/omafiles/integrations-version`), so it won't fight you if you switch the default back by hand. To undo it: `xdg-mime default nautilus.desktop inode/directory`, then remove the two files above.
 

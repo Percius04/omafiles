@@ -1,5 +1,6 @@
 import QtQuick
 import "../services"
+import "../state"
 
 
 // Omafiles host contract (Phase 18, josema) -- the ONLY artifact that
@@ -59,6 +60,7 @@ QtObject {
   // Persists the current size (debounced, so as not to write on every pixel of
   // a resize drag).
   function remember() {
+    if (PickerState.active) return
     _debounce.restart()
   }
 

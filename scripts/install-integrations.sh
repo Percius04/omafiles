@@ -29,9 +29,10 @@ trap on_error ERR
 # to the stable XDG location ($XDG_DATA_HOME/omafiles); v5 added the official
 # icon + its symbolic variant; v6 adds StartupWMClass=omafiles (so that the
 # dock/taskbar matches the window with this .desktop and paints the icon); v7
-# fixes D-Bus service section headers and system python shebangs. Bumping the
-# version forces the rewrite and re-copy in earlier installations.
-INTEGRATION_VERSION=7
+# fixes D-Bus service section headers and system python shebangs; v8 adds the
+# org.freedesktop.impl.portal.FileChooser integration. Bumping the version
+# forces the rewrite and re-copy in earlier installations.
+INTEGRATION_VERSION=8
 
 # RES_DIR: STABLE root of installed resources (Phase 29). The Exec point here,
 # not to the repo, so deleting the repository doesn't break opening folders nor "show in
@@ -65,7 +66,8 @@ XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPS_DIR="$XDG_DATA/applications"
 DBUS_SERVICES_DIR="$XDG_DATA/dbus-1/services"
 ICON_DIR="$XDG_DATA/icons/hicolor/scalable/apps"
-mkdir -p "$APPS_DIR" "$DBUS_SERVICES_DIR" "$ICON_DIR"
+PORTALS_DIR="$XDG_DATA/xdg-desktop-portal/portals"
+mkdir -p "$APPS_DIR" "$DBUS_SERVICES_DIR" "$ICON_DIR" "$PORTALS_DIR"
 
 # Real bug: the .desktop below references Icon=omafiles, but nothing
 # ever installed the SVG itself -- it was placed by hand on this specific
@@ -120,6 +122,48 @@ Name=org.freedesktop.FileManager1
 Exec=$RES_DIR/scripts/dbus-filemanager1.py
 EOF
 
+# D-Bus service org.freedesktop.impl.portal.desktop.omafiles
+cat >"$DBUS_SERVICES_DIR/org.freedesktop.impl.portal.desktop.omafiles.service" <<EOF
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.omafiles
+Exec=$RES_DIR/scripts/dbus-filechooser.py
+EOF
+
+# xdg-desktop-portal backend configuration file
+cat >"$PORTALS_DIR/omafiles.portal" <<EOF
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.omafiles
+Interfaces=org.freedesktop.impl.portal.FileChooser;
+UseIn=omarchy;Hyprland;
+EOF
+
+# User portal configuration
+USER_PORTAL_CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal"
+USER_HYPRLAND_PORTALS_CONF="$USER_PORTAL_CONF_DIR/hyprland-portals.conf"
+USER_PORTALS_CONF="$USER_PORTAL_CONF_DIR/portals.conf"
+mkdir -p "$USER_PORTAL_CONF_DIR"
+
+ensure_filechooser_portal() {
+  local conf_file="$1"
+  local default_content="$2"
+  if [[ ! -f "$conf_file" ]]; then
+    echo -e "$default_content" > "$conf_file"
+  fi
+
+  if ! grep -q "org.freedesktop.impl.portal.FileChooser" "$conf_file"; then
+    if grep -q "\[preferred\]" "$conf_file"; then
+      sed -i '/\[preferred\]/a org.freedesktop.impl.portal.FileChooser=omafiles' "$conf_file"
+    else
+      echo -e "\n[preferred]\norg.freedesktop.impl.portal.FileChooser=omafiles" >> "$conf_file"
+    fi
+  else
+    sed -i 's/^org.freedesktop.impl.portal.FileChooser=.*/org.freedesktop.impl.portal.FileChooser=omafiles/' "$conf_file"
+  fi
+}
+
+ensure_filechooser_portal "$USER_HYPRLAND_PORTALS_CONF" "[preferred]\ndefault=hyprland;gtk"
+ensure_filechooser_portal "$USER_PORTALS_CONF" "[preferred]\ndefault=gtk"
+
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" >/dev/null 2>&1
 command -v xdg-mime >/dev/null 2>&1 && xdg-mime default "$APP_ID.desktop" inode/directory >/dev/null 2>&1
 
@@ -130,11 +174,14 @@ command -v dbus-send >/dev/null 2>&1 && dbus-send --session --type=method_call \
   --dest=org.freedesktop.DBus /org/freedesktop/DBus \
   org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1
 
+# Restart xdg-desktop-portal user service so it picks up our new portal configuration
+systemctl --user restart xdg-desktop-portal >/dev/null 2>&1 || true
+
 echo -n "$INTEGRATION_VERSION" >"$STATE_FILE"
 
 # Standard notify-send (freedesktop), independent of Omarchy. The icon is the
 # app's own (Icon=omafiles already installed in hicolor).
 command -v notify-send >/dev/null 2>&1 && notify-send -i omafiles \
-  "Omafiles" "Set as the default file manager (folders, xdg-open, and \"show in file manager\")." >/dev/null 2>&1
+  "Omafiles" "Set as the default file manager and FileChooser portal." >/dev/null 2>&1
 
 exit 0

@@ -4,6 +4,7 @@ import qs.Ui
 import "../panels"
 import "../shared"
 import "../state"
+import "../services"
 
 // MainLayout -- main visual tree of Omafiles (Phase 11.B, josema:
 // decompose the god object core/OmafilesContent.qml). The card
@@ -309,7 +310,7 @@ Item {
           // a single term suffices instead of summing the three separately.
           height: activePanel.height - navRow.height
             - (EditModeState.creatingFolder || EditModeState.creatingFile ? activeInputRows.height + mainColumn.spacing : 0)
-            - statusText.height - mainColumn.spacing * (2 + (EditModeState.creatingFolder || EditModeState.creatingFile ? 1 : 0))
+            - (PickerState.active ? pickerBar.height : statusText.height) - mainColumn.spacing * (2 + (EditModeState.creatingFolder || EditModeState.creatingFile ? 1 : 0))
 
           ActiveFileList {
             id: list
@@ -362,6 +363,7 @@ Item {
               anchors.bottom: parent.bottom
               anchors.left: parent.left
               anchors.right: parent.right
+              visible: !PickerState.active
               text: NavState.visibleEntries.length + (NavState.visibleEntries.length === 1 ? " item" : " items")
                 + (NavState.searchQuery ? " of " + NavState.entries.length : "")
                 + (NavState.searchTruncated ? " · showing first 200" : "")
@@ -378,6 +380,31 @@ Item {
               font.family: Style.font.family
               color: Color.menu.text
               opacity: Style.emphasis.secondary
+            }
+
+            FilePickerBar {
+              id: pickerBar
+              anchors.bottom: parent.bottom
+              anchors.left: parent.left
+              anchors.right: parent.right
+              visible: PickerState.active
+              selectionOps: mainLayout.selectionOps
+              onResponseSubmitted: function(requestId, responseCode, results) {
+                var resultsJson = JSON.stringify(results)
+                Detached.run([
+                  "dbus-send",
+                  "--session",
+                  "--type=method_call",
+                  "--dest=org.freedesktop.impl.portal.desktop.omafiles",
+                  "/org/freedesktop/portal/desktop",
+                  "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
+                  "string:" + requestId,
+                  "uint32:" + responseCode,
+                  "string:" + resultsJson
+                ])
+                root.close()
+                root.requestClose()
+              }
             }
           } // end activePanel (Item)
         } // end panelsRow (Item)
@@ -410,6 +437,15 @@ Item {
       }
       onReleased: selectionOps.endMarquee()
       onCanceled: selectionOps.endMarquee()
+    }
+  }
+
+  Connections {
+    target: mainLayout.root
+    function onPickerSubmitRequested() {
+      if (PickerState.active) {
+        pickerBar.submit()
+      }
     }
   }
 }

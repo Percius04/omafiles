@@ -24,3 +24,5 @@ singleton TabsState 1.0 TabsState.qml
 singleton NavState 1.0 NavState.qml
 singleton Paths 1.0 Paths.qml
 singleton FileTypeConfig 1.0 FileTypeConfig.qml
+singleton PickerState 1.0 PickerState.qml
+

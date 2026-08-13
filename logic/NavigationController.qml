@@ -288,8 +288,12 @@ Item {
       mountOps.mountIso(entry)
     } else {
       var openPath = Utils.joinPath(NavState.currentPath, entry.name)
-      openWithDefault(openPath)
-      bookmarkOps.addRecent(openPath, entry.name)
+      if (PickerState.active) {
+        navCtrl.root.pickerSubmitRequested()
+      } else {
+        openWithDefault(openPath)
+        bookmarkOps.addRecent(openPath, entry.name)
+      }
     }
   }
 

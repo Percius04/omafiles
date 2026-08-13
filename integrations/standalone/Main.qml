@@ -51,14 +51,20 @@ ApplicationWindow {
   // calling it here is essential, otherwise the session is never saved in the
   // standalone (Phase 25 regression: before this only set opened=false and
   // skipped the save, so session.json stayed frozen).
-  onClosing: content.close()
+  onClosing: {
+    content.close()
+    Qt.quit()
+  }
 
   OmafilesContent {
     id: content
     anchors.fill: parent
     // Esc / closing the last tab: no `shell` object to notify (there is no
     // host to hide the plugin), so the window is closed directly.
-    onCloseRequested: window.close()
+    onCloseRequested: {
+      window.close()
+      Qt.quit()
+    }
   }
 
   // Single instance (Phase 25): a second invocation `omafiles [path]` doesn't open
@@ -76,7 +82,13 @@ ApplicationWindow {
   }
 
   Component.onCompleted: {
-    adapter.restore()
+    var isPicker = typeof omafilesInitialPayload !== "undefined" && omafilesInitialPayload.indexOf("picker:") >= 0
+    if (!isPicker) {
+      adapter.restore()
+    } else {
+      window.width = 900
+      window.height = 600
+    }
     // Initial payload from the command line (main.cpp). Empty = restores the
     // previous session (folder/tabs), same as the plugin startup.
     content.open(typeof omafilesInitialPayload !== "undefined" ? omafilesInitialPayload : "")
