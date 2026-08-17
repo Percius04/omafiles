@@ -16,6 +16,41 @@ QtObject {
                "uri=" + uri)
         })
 
+        sc.add("Picker filter selection and choice result stay structured", function (done) {
+          var filters = [
+            { name: "Text", rules: [{ type: 0, value: "*.txt" }] },
+            { name: "Images", rules: [{ type: 1, value: "image/*" }] }
+          ]
+          var choices = [
+            { id: "encoding", label: "Encoding",
+              options: [{ id: "utf8", label: "UTF-8" }, { id: "latin1", label: "Latin-1" }],
+              selected: "utf8" },
+            { id: "readonly", label: "Read only", options: [], selected: "false" }
+          ]
+          PickerState.configureContract(filters, 1, choices)
+          PickerState.currentFilter = 0
+          PickerState.setChoiceSelection("encoding", "latin1")
+          PickerState.setChoiceSelection("readonly", "true")
+          var result = PickerState.resultMap(["file:///tmp/note.txt"])
+          var expectedChoices = [["encoding", "latin1"], ["readonly", "true"]]
+          var ok = result.currentFilter === 0
+            && JSON.stringify(result.choices) === JSON.stringify(expectedChoices)
+            && JSON.stringify(result.uris) === '["file:///tmp/note.txt"]'
+          PickerState.resetContract()
+          done(ok, JSON.stringify(result))
+        })
+
+        sc.add("MimeResolver enforces picker glob and MIME filters", function (done) {
+          var globMatch = Backend.MimeResolver.matchesFilter(
+            sc.note, [{ type: 0, value: "*.txt" }])
+          var globReject = Backend.MimeResolver.matchesFilter(
+            sc.note, [{ type: 0, value: "*.png" }])
+          var mimeMatch = Backend.MimeResolver.matchesFilter(
+            sc.png, [{ type: 1, value: "image/*" }])
+          done(globMatch && !globReject && mimeMatch,
+               "glob=" + globMatch + " reject=" + globReject + " mime=" + mimeMatch)
+        })
+
         sc.add("SaveFiles destination URIs preserve requested order", function (done) {
           var names = ["second #.txt", "first?.txt", "100%.txt"]
           var uris = Util.saveFilesResultUris("/tmp/destination", names)

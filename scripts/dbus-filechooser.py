@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 """org.freedesktop.impl.portal.FileChooser backend for OmaFiles."""
 
+import fnmatch
 import hmac
 import json
+import mimetypes
 import os
 import posixpath
 import re
@@ -77,6 +79,148 @@ dbus_connection = None
 frontend_owner = ""
 active_requests = {}
 
+# Linux accepts at most 32 pages for one execve(2) argument (MAX_ARG_STRLEN),
+# including its terminating NUL. The picker JSON is one argument, so this is
+# the technical bound for the full payload, each nested UTF-8 string, and each
+# collection count (every serialized item consumes at least one byte).
+MAX_PICKER_ARGUMENT_BYTES = os.sysconf("SC_PAGESIZE") * 32 - 1
+MAX_PICKER_STRING_BYTES = MAX_PICKER_ARGUMENT_BYTES
+MAX_PICKER_COLLECTION_ITEMS = MAX_PICKER_ARGUMENT_BYTES
+_MIME_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+\-]*/(?:\*|[A-Za-z0-9][A-Za-z0-9!#$&^_.+\-]*)$"
+)
+
+
+def validate_collection_count(value, label):
+    try:
+        count = len(value)
+    except TypeError as exc:
+        raise ValueError(f"{label} must be an array") from exc
+    if count > MAX_PICKER_COLLECTION_ITEMS:
+        raise ValueError(f"{label} has too many items")
+    return count
+
+
+def _valid_text(value, label, *, allow_empty=False):
+    if not isinstance(value, str) or (not allow_empty and not value) or "\0" in value:
+        raise ValueError(f"{label} is invalid")
+    try:
+        encoded = value.encode("utf-8", "strict")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{label} is not valid UTF-8") from exc
+    if len(encoded) > MAX_PICKER_STRING_BYTES:
+        raise ValueError(f"{label} is too large")
+    return value
+
+
+def _sequence(value, length, label):
+    if not isinstance(value, (list, tuple)) or len(value) != length:
+        raise ValueError(f"{label} has the wrong tuple shape")
+    return value
+
+
+def decode_filters(value):
+    """Decode a(sa(us)) into JSON-safe filters and canonical D-Bus tuples."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("filters must be an array")
+    validate_collection_count(value, "filters")
+    decoded = []
+    originals = []
+    for filter_index, raw_filter in enumerate(value):
+        name, raw_rules = _sequence(raw_filter, 2, f"filter {filter_index}")
+        name = _valid_text(name, f"filter {filter_index} name")
+        if not isinstance(raw_rules, (list, tuple)):
+            raise ValueError(f"filter {filter_index} rules must be an array")
+        if not raw_rules:
+            raise ValueError(f"filter {filter_index} must have a rule")
+        validate_collection_count(raw_rules, f"filter {filter_index} rules")
+        rules = []
+        original_rules = []
+        for rule_index, raw_rule in enumerate(raw_rules):
+            rule_type, rule_value = _sequence(
+                raw_rule, 2, f"filter {filter_index} rule {rule_index}"
+            )
+            if type(rule_type) is not int or rule_type not in (0, 1):
+                raise ValueError("filter rule type must be glob=0 or MIME=1")
+            rule_value = _valid_text(
+                rule_value, f"filter {filter_index} rule {rule_index} value"
+            )
+            if rule_type == 1 and not _MIME_PATTERN.fullmatch(rule_value):
+                raise ValueError("invalid MIME filter")
+            rules.append({"type": rule_type, "value": rule_value})
+            original_rules.append((rule_type, rule_value))
+        decoded.append({"name": name, "rules": rules})
+        originals.append((name, tuple(original_rules)))
+    return decoded, originals
+
+
+def decode_current_filter(value, filters):
+    """Return the exact matching filter index for a (sa(us)) value."""
+    decoded, originals = decode_filters([_sequence(value, 2, "current_filter")])
+    del decoded
+    if not filters:
+        raise ValueError("current_filter requires filters")
+    try:
+        return list(filters).index(originals[0])
+    except ValueError as exc:
+        raise ValueError("current_filter is not in filters") from exc
+
+
+def decode_choices(value):
+    """Decode a(ssa(ss)s) into JSON-safe choices and canonical tuples."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("choices must be an array")
+    validate_collection_count(value, "choices")
+    decoded = []
+    originals = []
+    choice_ids = set()
+    for choice_index, raw_choice in enumerate(value):
+        choice_id, label, raw_options, selected = _sequence(
+            raw_choice, 4, f"choice {choice_index}"
+        )
+        choice_id = _valid_text(choice_id, f"choice {choice_index} id")
+        label = _valid_text(label, f"choice {choice_index} label")
+        selected = _valid_text(selected, f"choice {choice_index} initial selection")
+        if choice_id in choice_ids:
+            raise ValueError("choice IDs must be unique")
+        choice_ids.add(choice_id)
+        if not isinstance(raw_options, (list, tuple)):
+            raise ValueError(f"choice {choice_index} options must be an array")
+        validate_collection_count(raw_options, f"choice {choice_index} options")
+        options = []
+        original_options = []
+        option_ids = set()
+        for option_index, raw_option in enumerate(raw_options):
+            option_id, option_label = _sequence(
+                raw_option, 2, f"choice {choice_index} option {option_index}"
+            )
+            option_id = _valid_text(
+                option_id, f"choice {choice_index} option {option_index} id"
+            )
+            option_label = _valid_text(
+                option_label, f"choice {choice_index} option {option_index} label"
+            )
+            if option_id in option_ids:
+                raise ValueError("choice option IDs must be unique")
+            option_ids.add(option_id)
+            options.append({"id": option_id, "label": option_label})
+            original_options.append((option_id, option_label))
+        if options:
+            if selected not in option_ids:
+                raise ValueError("choice initial selection is not an option")
+        elif selected not in ("true", "false"):
+            raise ValueError("boolean choice selection must be true or false")
+        decoded.append(
+            {
+                "id": choice_id,
+                "label": label,
+                "options": options,
+                "selected": selected,
+            }
+        )
+        originals.append((choice_id, label, tuple(original_options), selected))
+    return decoded, originals
+
 
 def _as_bytes(value):
     if isinstance(value, bytes):
@@ -119,9 +263,12 @@ def decode_save_files(value):
     return names
 
 
-def build_picker_payload(*, folder, request_id, mode, multiple, suggested_name, files):
-    """Build the non-secret JSON argument consumed by OmafilesContent.open()."""
-    return json.dumps(
+def build_picker_payload(
+    *, folder, request_id, mode, multiple, suggested_name, files,
+    filters, current_filter, choices
+):
+    """Build the bounded, non-secret JSON argument consumed by the picker."""
+    payload = json.dumps(
         {
             "kind": "picker",
             "folder": folder,
@@ -130,10 +277,20 @@ def build_picker_payload(*, folder, request_id, mode, multiple, suggested_name, 
             "multiple": bool(multiple),
             "suggestedName": suggested_name or "",
             "files": list(files or []),
+            "filters": list(filters),
+            "currentFilter": current_filter,
+            "choices": list(choices),
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
+    try:
+        encoded = payload.encode("utf-8", "strict")
+    except UnicodeEncodeError as exc:
+        raise ValueError("picker payload is not valid UTF-8") from exc
+    if len(encoded) > MAX_PICKER_ARGUMENT_BYTES:
+        raise ValueError("picker payload exceeds the Linux single-argument limit")
+    return payload
 
 
 def sender_matches_request(requests, request_id, sender):
@@ -227,34 +384,133 @@ def _decode_local_uri(uri):
     return path
 
 
-def normalize_submission(response_code, results_json, mode, multiple, requested_files):
-    """Validate a picker submission before returning it to the portal caller."""
+def _mime_type_for_path(path):
+    if Gio is not None:
+        try:
+            content_type, _uncertain = Gio.content_type_guess(path, None)
+            if content_type:
+                return content_type
+        except (AttributeError, TypeError):
+            pass
+    return mimetypes.guess_type(path, strict=False)[0] or "application/octet-stream"
+
+
+def _mime_matches(actual, expected):
+    if expected.endswith("/*"):
+        return actual.startswith(expected[:-1])
+    if actual == expected:
+        return True
+    if Gio is not None:
+        try:
+            return Gio.content_type_is_a(actual, expected)
+        except (AttributeError, TypeError):
+            return False
+    return False
+
+
+def path_matches_filter(path, selected_filter):
+    """Match a local path against one normalized canonical filter tuple."""
+    _name, rules = selected_filter
+    basename = posixpath.basename(path)
+    actual_mime = None
+    for rule_type, rule_value in rules:
+        if rule_type == 0 and fnmatch.fnmatchcase(basename, rule_value):
+            return True
+        if rule_type == 1:
+            if actual_mime is None:
+                actual_mime = _mime_type_for_path(path)
+            if _mime_matches(actual_mime, rule_value):
+                return True
+    return False
+
+
+def _normalize_choice_submission(submitted, requested_choices):
+    if not isinstance(submitted, list):
+        raise ValueError("choices must be an array")
+    validate_collection_count(submitted, "submitted choices")
+    values = {}
+    for pair_index, raw_pair in enumerate(submitted):
+        choice_id, value = _sequence(raw_pair, 2, f"submitted choice {pair_index}")
+        choice_id = _valid_text(choice_id, f"submitted choice {pair_index} id")
+        value = _valid_text(value, f"submitted choice {pair_index} value")
+        if choice_id in values:
+            raise ValueError("each requested choice must occur exactly once")
+        values[choice_id] = value
+    if len(values) != len(requested_choices):
+        raise ValueError("each requested choice must occur exactly once")
+    normalized = []
+    for choice_id, _label, options, _initial in requested_choices:
+        if choice_id not in values:
+            raise ValueError("missing requested choice")
+        value = values[choice_id]
+        valid_values = {option_id for option_id, _option_label in options}
+        if options:
+            if value not in valid_values:
+                raise ValueError("choice value is not an option")
+        elif value not in ("true", "false"):
+            raise ValueError("boolean choice value must be true or false")
+        normalized.append((choice_id, value))
+    return normalized
+
+
+def normalize_submission(
+    response_code, results_json, mode, multiple, requested_files,
+    filters=(), requested_choices=()
+):
+    """Validate a structured picker submission against authoritative options."""
     if response_code not in (0, 1, 2):
-        return 2, []
+        return 2, {}
     if response_code != 0:
-        return response_code, []
+        return response_code, {}
     try:
-        uris = json.loads(results_json)
+        submitted = json.loads(results_json)
+        if not isinstance(submitted, dict) or set(submitted) != {
+            "uris", "currentFilter", "choices"
+        }:
+            raise ValueError("results must use the exact structured schema")
+        uris = submitted["uris"]
         if not isinstance(uris, list) or not uris:
-            raise ValueError("results must be a non-empty list")
+            raise ValueError("uris must be a non-empty array")
+        validate_collection_count(uris, "submitted URIs")
         paths = [_decode_local_uri(uri) for uri in uris]
+        filter_index = submitted["currentFilter"]
+        if type(filter_index) is not int:
+            raise ValueError("currentFilter must be an integer")
+        if filters:
+            if filter_index < 0 or filter_index >= len(filters):
+                raise ValueError("currentFilter is out of range")
+            selected_filter = filters[filter_index]
+            for path in paths:
+                if mode == "open-dir" and os.path.isdir(path):
+                    continue
+                if not path_matches_filter(path, selected_filter):
+                    raise ValueError("URI does not match the selected filter")
+        elif filter_index != -1:
+            raise ValueError("currentFilter must be -1 when no filters were requested")
+        choices = _normalize_choice_submission(
+            submitted["choices"], requested_choices
+        )
     except (TypeError, UnicodeDecodeError, ValueError):
-        return 2, []
+        return 2, {}
 
     if mode == "save-files":
         if [posixpath.basename(path) for path in paths] != list(requested_files or []):
-            return 2, []
+            return 2, {}
         parents = [posixpath.dirname(path) for path in paths]
         if not parents or any(parent != parents[0] for parent in parents):
-            return 2, []
+            return 2, {}
     elif mode == "open-file":
         if any(os.path.isdir(path) for path in paths):
-            return 2, []
+            return 2, {}
         if not multiple and len(uris) > 1:
             uris = uris[:1]
     elif not multiple and len(uris) > 1:
         uris = uris[:1]
-    return 0, uris
+    return 0, {
+        "uris": uris,
+        "current_filter": filters[filter_index] if filters else None,
+        "choices": choices,
+    }
 
 
 def get_opt(options, key, default=None):
@@ -282,13 +538,21 @@ def _cleanup_claimed_request(request):
             )
 
 
-def complete_request(handle, response_code, uris=None, force_exit=False):
+def complete_request(handle, response_code, result=None, force_exit=False):
     """Complete and clean a request once; optionally terminate its picker."""
     request = claim_request(active_requests, handle)
     if not request:
         return False
     _cleanup_claimed_request(request)
-    results = {"uris": GLib.Variant("as", uris or [])} if response_code == 0 else {}
+    results = {}
+    if response_code == 0:
+        result = result or {}
+        results["uris"] = GLib.Variant("as", result.get("uris", []))
+        results["choices"] = GLib.Variant("a(ss)", result.get("choices", []))
+        if result.get("current_filter") is not None:
+            results["current_filter"] = GLib.Variant(
+                "(sa(us))", result["current_filter"]
+            )
     request["invocation"].return_value(GLib.Variant("(ua{sv})", (response_code, results)))
     process = request.get("process")
     if force_exit and process:
@@ -323,6 +587,11 @@ def _decode_option_path(options, key):
         return ""
 
 
+def _return_invalid_options(invocation, message):
+    print(f"OmaFiles FileChooser: invalid options: {message}", file=sys.stderr)
+    invocation.return_value(GLib.Variant("(ua{sv})", (2, {})))
+
+
 def on_filechooser_method_call(connection, sender, object_path, interface_name,
                                method_name, parameters, invocation):
     del object_path, interface_name
@@ -333,6 +602,19 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
         return
     multiple = bool(get_opt(options, "multiple", False))
     directory = bool(get_opt(options, "directory", False))
+
+    try:
+        filters, original_filters = decode_filters(get_opt(options, "filters", []))
+        choices, original_choices = decode_choices(get_opt(options, "choices", []))
+        if "current_filter" in options:
+            current_filter = decode_current_filter(
+                get_opt(options, "current_filter"), original_filters
+            )
+        else:
+            current_filter = 0 if original_filters else -1
+    except ValueError as exc:
+        _return_invalid_options(invocation, str(exc))
+        return
 
     folder_path = _decode_option_path(options, "current_folder")
     suggested_name = get_opt(options, "current_name", "") or ""
@@ -352,8 +634,7 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
         try:
             files = decode_save_files(get_opt(options, "files", []))
         except (UnicodeDecodeError, ValueError) as exc:
-            print(f"OmaFiles FileChooser: invalid SaveFiles names: {exc}", file=sys.stderr)
-            invocation.return_value(GLib.Variant("(ua{sv})", (2, {})))
+            _return_invalid_options(invocation, f"SaveFiles names: {exc}")
             return
     elif method_name == "SaveFile":
         mode = "save-file"
@@ -361,6 +642,22 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
         mode = "open-dir"
     else:
         mode = "open-file"
+
+    try:
+        payload = build_picker_payload(
+            folder=folder_path,
+            request_id=handle,
+            mode=mode,
+            multiple=multiple,
+            suggested_name=suggested_name,
+            files=files,
+            filters=filters,
+            current_filter=current_filter,
+            choices=choices,
+        )
+    except (TypeError, ValueError) as exc:
+        _return_invalid_options(invocation, str(exc))
+        return
 
     request_node = Gio.DBusNodeInfo.new_for_xml(REQUEST_INTROSPECTION_XML)
     registration_id = connection.register_object(
@@ -373,6 +670,8 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
         "multiple": multiple,
         "mode": mode,
         "files": files,
+        "filters": original_filters,
+        "choices": original_choices,
         "token": token,
         "frontend_sender": sender,
         "picker_sender": None,
@@ -386,14 +685,6 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
             pass
         complete_request(request_handle, 1)
 
-    payload = build_picker_payload(
-        folder=folder_path,
-        request_id=handle,
-        mode=mode,
-        multiple=multiple,
-        suggested_name=suggested_name,
-        files=files,
-    )
     try:
         process = Gio.Subprocess.new(
             [resolve_omafiles_bin(), payload], Gio.SubprocessFlags.STDIN_PIPE
@@ -440,14 +731,16 @@ def on_submission_method_call(connection, sender, object_path, interface_name,
         _invalid_request(invocation)
         return
     request = active_requests[request_id]
-    response_code, uris = normalize_submission(
+    response_code, result = normalize_submission(
         response_code,
         results_json,
         request["mode"],
         request["multiple"],
         request["files"],
+        request["filters"],
+        request["choices"],
     )
-    if not complete_request(request_id, response_code, uris):
+    if not complete_request(request_id, response_code, result):
         _invalid_request(invocation)
         return
     invocation.return_value(None)

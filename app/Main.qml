@@ -29,10 +29,25 @@ ApplicationWindow {
   title: "Omafiles"
   color: Color.menu.background
 
+  function hasInitialPickerContract(payload) {
+    if (typeof payload !== "string") return false
+    try {
+      var parsed = JSON.parse(payload)
+      var keys = ["choices", "currentFilter", "files", "filters", "folder", "kind",
+                  "mode", "multiple", "requestId", "suggestedName"]
+      return Object.keys(parsed).sort().join(",") === keys.join(",")
+        && Array.isArray(parsed.filters) && Array.isArray(parsed.choices)
+        && typeof parsed.currentFilter === "number"
+    } catch (error) {
+      return false
+    }
+  }
+
   // main.cpp validates the full picker schema before publishing this flag and
-  // before deciding socket routing. OmafilesContent validates again before use.
+  // before deciding socket routing. Main and OmafilesContent reject schema drift.
   readonly property bool initialPicker: typeof omafilesInitialIsPicker !== "undefined"
     && omafilesInitialIsPicker === true
+    && hasInitialPickerContract(omafilesInitialPayload)
 
   HostAdapter {
     id: adapter

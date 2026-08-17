@@ -22,6 +22,7 @@
 #include <QObject>
 #include <QQuickStyle>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -29,6 +30,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 #include <cstdio>
 #include <memory>
 #include <utility>
@@ -148,6 +150,89 @@ bool validatedFileManagerPayload(const QString &payload,
   return true;
 }
 
+bool validJsonText(const QJsonValue &value, bool allowEmpty = false) {
+  if (!value.isString()) return false;
+  const QString text = value.toString();
+  if ((!allowEmpty && text.isEmpty()) || text.contains(QChar::Null)) return false;
+  for (qsizetype i = 0; i < text.size(); ++i) {
+    const QChar c = text.at(i);
+    if (c.isHighSurrogate()) {
+      if (++i >= text.size() || !text.at(i).isLowSurrogate()) return false;
+    } else if (c.isLowSurrogate()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool validPickerFilters(const QJsonArray &filters, int currentFilter) {
+  static const QRegularExpression mimePattern(
+      QStringLiteral("^[A-Za-z0-9][A-Za-z0-9!#$&^_.+\\-]*/(?:\\*|[A-Za-z0-9][A-Za-z0-9!#$&^_.+\\-]*)$"));
+  static const QStringList filterKeys{QStringLiteral("name"),
+                                      QStringLiteral("rules")};
+  static const QStringList ruleKeys{QStringLiteral("type"),
+                                    QStringLiteral("value")};
+  for (const QJsonValue &filterValue : filters) {
+    if (!filterValue.isObject()) return false;
+    const QJsonObject filter = filterValue.toObject();
+    if (filter.keys() != filterKeys || !validJsonText(filter.value(QStringLiteral("name"))) ||
+        !filter.value(QStringLiteral("rules")).isArray()) return false;
+    const QJsonArray rules = filter.value(QStringLiteral("rules")).toArray();
+    if (rules.isEmpty()) return false;
+    for (const QJsonValue &ruleValue : rules) {
+      if (!ruleValue.isObject()) return false;
+      const QJsonObject rule = ruleValue.toObject();
+      const QJsonValue typeValue = rule.value(QStringLiteral("type"));
+      const double typeNumber = typeValue.toDouble(-1);
+      if (rule.keys() != ruleKeys || !typeValue.isDouble() ||
+          (typeNumber != 0 && typeNumber != 1) ||
+          !validJsonText(rule.value(QStringLiteral("value"))) ||
+          (typeNumber == 1 &&
+           !mimePattern.match(rule.value(QStringLiteral("value")).toString()).hasMatch())) {
+        return false;
+      }
+    }
+  }
+  return filters.isEmpty() ? currentFilter == -1
+                           : currentFilter >= 0 && currentFilter < filters.size();
+}
+
+bool validPickerChoices(const QJsonArray &choices) {
+  static const QStringList choiceKeys{
+      QStringLiteral("id"), QStringLiteral("label"), QStringLiteral("options"),
+      QStringLiteral("selected")};
+  static const QStringList optionKeys{QStringLiteral("id"),
+                                      QStringLiteral("label")};
+  QSet<QString> choiceIds;
+  for (const QJsonValue &choiceValue : choices) {
+    if (!choiceValue.isObject()) return false;
+    const QJsonObject choice = choiceValue.toObject();
+    if (choice.keys() != choiceKeys || !validJsonText(choice.value(QStringLiteral("id"))) ||
+        !validJsonText(choice.value(QStringLiteral("label"))) ||
+        !validJsonText(choice.value(QStringLiteral("selected"))) ||
+        !choice.value(QStringLiteral("options")).isArray()) return false;
+    const QString choiceId = choice.value(QStringLiteral("id")).toString();
+    if (choiceIds.contains(choiceId)) return false;
+    choiceIds.insert(choiceId);
+    const QJsonArray options = choice.value(QStringLiteral("options")).toArray();
+    QSet<QString> optionIds;
+    for (const QJsonValue &optionValue : options) {
+      if (!optionValue.isObject()) return false;
+      const QJsonObject option = optionValue.toObject();
+      if (option.keys() != optionKeys || !validJsonText(option.value(QStringLiteral("id"))) ||
+          !validJsonText(option.value(QStringLiteral("label")))) return false;
+      const QString optionId = option.value(QStringLiteral("id")).toString();
+      if (optionIds.contains(optionId)) return false;
+      optionIds.insert(optionId);
+    }
+    const QString selected = choice.value(QStringLiteral("selected")).toString();
+    if ((!options.isEmpty() && !optionIds.contains(selected)) ||
+        (options.isEmpty() && selected != QLatin1String("true") &&
+         selected != QLatin1String("false"))) return false;
+  }
+  return true;
+}
+
 // Picker payloads use a strict, non-secret JSON schema. This classifier is
 // shared by command routing and the test seam so picker processes can never
 // contact or claim the normal single-instance socket.
@@ -160,18 +245,27 @@ bool validatedPickerPayload(const QString &payload, QJsonObject *result = nullpt
   const QString folder = object.value(QStringLiteral("folder")).toString();
   const QString requestId = object.value(QStringLiteral("requestId")).toString();
   const QJsonValue filesValue = object.value(QStringLiteral("files"));
+  const QJsonValue filtersValue = object.value(QStringLiteral("filters"));
+  const QJsonValue choicesValue = object.value(QStringLiteral("choices"));
+  const QJsonValue currentFilterValue = object.value(QStringLiteral("currentFilter"));
   static const QRegularExpression objectPathPattern(
       QStringLiteral("^/(?:[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*)?$"));
   static const QStringList pickerKeys{
-      QStringLiteral("files"), QStringLiteral("folder"), QStringLiteral("kind"),
-      QStringLiteral("mode"), QStringLiteral("multiple"), QStringLiteral("requestId"),
-      QStringLiteral("suggestedName")};
+      QStringLiteral("choices"), QStringLiteral("currentFilter"),
+      QStringLiteral("files"), QStringLiteral("filters"), QStringLiteral("folder"),
+      QStringLiteral("kind"), QStringLiteral("mode"), QStringLiteral("multiple"),
+      QStringLiteral("requestId"), QStringLiteral("suggestedName")};
   if (object.keys() != pickerKeys ||
       object.value(QStringLiteral("kind")).toString() != QLatin1String("picker") ||
       !objectPathPattern.match(requestId).hasMatch() || !folder.startsWith(QLatin1Char('/')) ||
       folder.contains(QChar::Null) ||
       !object.value(QStringLiteral("multiple")).isBool() ||
-      !object.value(QStringLiteral("suggestedName")).isString() || !filesValue.isArray() ||
+      !validJsonText(object.value(QStringLiteral("suggestedName")), true) ||
+      !filesValue.isArray() || !filtersValue.isArray() || !choicesValue.isArray() ||
+      !currentFilterValue.isDouble() ||
+      currentFilterValue.toDouble() != currentFilterValue.toInt() ||
+      !validPickerFilters(filtersValue.toArray(), currentFilterValue.toInt()) ||
+      !validPickerChoices(choicesValue.toArray()) ||
       (mode != QLatin1String("open-file") && mode != QLatin1String("open-dir") &&
        mode != QLatin1String("save-file") && mode != QLatin1String("save-files"))) {
     return false;
@@ -249,10 +343,10 @@ class PickerResponder : public QObject {
     return m_registered;
   }
 
-  Q_INVOKABLE bool submit(int responseCode, const QVariantList &results) {
+  Q_INVOKABLE bool submit(int responseCode, const QVariantMap &results) {
     if (!ready() || responseCode < 0) return false;
     const QString resultsJson = QString::fromUtf8(
-        QJsonDocument(QJsonArray::fromVariantList(results)).toJson(QJsonDocument::Compact));
+        QJsonDocument(QJsonObject::fromVariantMap(results)).toJson(QJsonDocument::Compact));
     QDBusInterface portal(
         QStringLiteral("org.freedesktop.impl.portal.desktop.omafiles"),
         QStringLiteral("/org/freedesktop/portal/desktop"),
@@ -730,6 +824,8 @@ int main(int argc, char *argv[]) {
                                       QString::fromLocal8Bit(argv[i + 1]));
     if (argument == QLatin1String("--test-file-manager-payload") && i + 1 < argc)
       return validatedFileManagerPayload(QString::fromLocal8Bit(argv[i + 1])) ? 0 : 1;
+    if (argument == QLatin1String("--test-picker-payload") && i + 1 < argc)
+      return validatedPickerPayload(QString::fromLocal8Bit(argv[i + 1])) ? 0 : 1;
     if (argument == QLatin1String("--test-simultaneous-instance") && i + 4 < argc)
       return runSimultaneousInstanceTest(
           argc, argv, QString::fromLocal8Bit(argv[i + 1]),

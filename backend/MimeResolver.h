@@ -17,6 +17,9 @@ public:
   // Returns a list of maps: [{"name": "Foo", "id": "foo.desktop"}, ...]
   Q_INVOKABLE QVariantList getAppsForFile(const QString &path);
 
+  // Matches one local file against normalized portal glob/MIME rules.
+  Q_INVOKABLE bool matchesFilter(const QString &path, const QVariantList &rules);
+
   // Launches an application via its desktop ID
   Q_INVOKABLE void launchApp(const QString &desktopId, const QString &path);
 };

@@ -37,8 +37,83 @@ class SaveFilesDecodingTests(unittest.TestCase):
                     chooser.decode_save_files(raw)
 
 
+class PickerContractDecodingTests(unittest.TestCase):
+    VALID_FILTERS = [
+        ("Text", [(0, "*.txt"), (1, "text/plain")]),
+        ("Images", [(1, "image/*")]),
+    ]
+    VALID_CHOICES = [
+        ("encoding", "Encoding", [("utf8", "UTF-8"), ("latin1", "Latin-1")], "utf8"),
+        ("readonly", "Read only", [], "false"),
+    ]
+
+    def test_decodes_filters_current_filter_and_choices(self):
+        filters, originals = chooser.decode_filters(self.VALID_FILTERS)
+        choices, choice_originals = chooser.decode_choices(self.VALID_CHOICES)
+        self.assertEqual(filters[0]["rules"][1], {"type": 1, "value": "text/plain"})
+        self.assertEqual(chooser.decode_current_filter(self.VALID_FILTERS[1], originals), 1)
+        self.assertEqual(choices[0]["selected"], "utf8")
+        self.assertEqual(originals[0], ("Text", ((0, "*.txt"), (1, "text/plain"))))
+        self.assertEqual(choice_originals[1], ("readonly", "Read only", (), "false"))
+
+    def test_rejects_malformed_filters(self):
+        malformed = [
+            "not-an-array",
+            [("", [(0, "*.txt")])],
+            [("Text", [])],
+            [("Text", [(2, "*.txt")])],
+            [("Text", [(True, "*.txt")])],
+            [("Text", [(0, "")])],
+            [("Text", [(1, "not a mime")])],
+            [("Text\0", [(0, "*.txt")])],
+            [("Text", [(0, "\ud800")])],
+        ]
+        for value in malformed:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    chooser.decode_filters(value)
+
+    def test_rejects_missing_or_unknown_current_filter(self):
+        _, originals = chooser.decode_filters(self.VALID_FILTERS)
+        for value in [("Other", [(0, "*.other")]), ("Text", [(0, "*.txt")])]:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    chooser.decode_current_filter(value, originals)
+        with self.assertRaises(ValueError):
+            chooser.decode_current_filter(self.VALID_FILTERS[0], [])
+
+    def test_rejects_malformed_choices(self):
+        malformed = [
+            "not-an-array",
+            [("", "Label", [], "false")],
+            [("dup", "One", [], "false"), ("dup", "Two", [], "true")],
+            [("choice", "", [("a", "A")], "a")],
+            [("choice", "Label", [("", "A")], "")],
+            [("choice", "Label", [("a", "A"), ("a", "Again")], "a")],
+            [("choice", "Label", [("a", "A")], "missing")],
+            [("toggle", "Toggle", [], "maybe")],
+            [("bad\0", "Label", [], "false")],
+            [("bad", "\ud800", [], "false")],
+        ]
+        for value in malformed:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    chooser.decode_choices(value)
+
+    def test_size_and_count_bounds_are_tied_to_linux_argument_limit(self):
+        too_long = "x" * (chooser.MAX_PICKER_ARGUMENT_BYTES + 1)
+        with self.assertRaises(ValueError):
+            chooser.decode_filters([("Text", [(0, too_long)])])
+        with self.assertRaises(ValueError):
+            chooser.decode_choices([("choice", "Choice", [(too_long, "X")], too_long)])
+        with self.assertRaises(ValueError):
+            chooser.validate_collection_count(
+                range(chooser.MAX_PICKER_COLLECTION_ITEMS + 1), "test collection"
+            )
+
+
 class PickerPayloadTests(unittest.TestCase):
-    def test_json_payload_has_no_secret_and_preserves_order(self):
+    def test_json_payload_has_no_secret_and_preserves_contract(self):
         payload = chooser.build_picker_payload(
             folder="/tmp/a:b\nreserved #?%",
             request_id="/org/freedesktop/portal/desktop/request/1_2/test",
@@ -46,14 +121,34 @@ class PickerPayloadTests(unittest.TestCase):
             multiple=False,
             suggested_name="",
             files=["two:2.txt", "one 1.txt"],
+            filters=[{"name": "Text", "rules": [{"type": 0, "value": "*.txt"}]}],
+            current_filter=0,
+            choices=[{"id": "encoding", "label": "Encoding", "options": [{"id": "utf8", "label": "UTF-8"}], "selected": "utf8"}],
         )
         decoded = json.loads(payload)
         self.assertEqual(decoded["kind"], "picker")
         self.assertEqual(decoded["folder"], "/tmp/a:b\nreserved #?%")
         self.assertEqual(decoded["files"], ["two:2.txt", "one 1.txt"])
+        self.assertEqual(decoded["currentFilter"], 0)
+        self.assertEqual(decoded["filters"][0]["name"], "Text")
+        self.assertEqual(decoded["choices"][0]["selected"], "utf8")
         self.assertNotIn("token", decoded)
         self.assertNotIn("secret", payload.lower())
         self.assertNotIn("picker:", payload)
+
+    def test_rejects_payload_over_linux_single_argument_limit(self):
+        with self.assertRaises(ValueError):
+            chooser.build_picker_payload(
+                folder="/tmp",
+                request_id="/request/test",
+                mode="open-file",
+                multiple=False,
+                suggested_name="",
+                files=[],
+                filters=[{"name": "X", "rules": [{"type": 0, "value": "x" * chooser.MAX_PICKER_ARGUMENT_BYTES}]}],
+                current_filter=0,
+                choices=[],
+            )
 
 
 class FrontendAuthorizationTests(unittest.TestCase):
@@ -272,60 +367,203 @@ class SubmissionNormalizationTests(unittest.TestCase):
             chooser.dbus_connection = original_connection
             chooser.active_requests = original_requests
 
-    def test_open_file_single_selection_is_truncated(self):
-        code, uris = chooser.normalize_submission(
-            0, '["file:///one", "file:///two"]', "open-file", False, []
+    @staticmethod
+    def submission(uris, current_filter=-1, choices=None):
+        return json.dumps(
+            {"uris": uris, "currentFilter": current_filter, "choices": choices or []},
+            ensure_ascii=False,
         )
-        self.assertEqual((code, uris), (0, ["file:///one"]))
+
+    def test_malformed_options_return_response_two(self):
+        class FakeVariant:
+            def __init__(self, signature, value):
+                self.signature = signature
+                self.value = value
+
+        class FakeGLib:
+            Variant = FakeVariant
+
+        invocation = FrontendAuthorizationTests.FakeInvocation()
+        original_glib = chooser.GLib
+        try:
+            chooser.GLib = FakeGLib
+            chooser._return_invalid_options(invocation, "bad filters")
+            self.assertEqual(len(invocation.replies), 1)
+            self.assertEqual(invocation.replies[0].signature, "(ua{sv})")
+            self.assertEqual(invocation.replies[0].value, (2, {}))
+        finally:
+            chooser.GLib = original_glib
+
+    def test_success_returns_exact_current_filter_and_choice_variant_types(self):
+        class FakeVariant:
+            def __init__(self, signature, value):
+                self.signature = signature
+                self.value = value
+
+        class FakeGLib:
+            Variant = FakeVariant
+
+        invocation = FrontendAuthorizationTests.FakeInvocation()
+        result = {
+            "uris": ["file:///tmp/note.txt"],
+            "current_filter": ("Text", ((0, "*.txt"),)),
+            "choices": [("encoding", "utf8")],
+        }
+        original_glib = chooser.GLib
+        original_connection = chooser.dbus_connection
+        original_requests = chooser.active_requests
+        try:
+            chooser.GLib = FakeGLib
+            chooser.dbus_connection = None
+            chooser.active_requests = {
+                "/request/active": {
+                    "invocation": invocation,
+                    "registration_id": 7,
+                    "process": None,
+                }
+            }
+            self.assertTrue(chooser.complete_request("/request/active", 0, result))
+            outer = invocation.replies[0]
+            self.assertEqual(outer.signature, "(ua{sv})")
+            variants = outer.value[1]
+            self.assertEqual(variants["uris"].signature, "as")
+            self.assertEqual(variants["current_filter"].signature, "(sa(us))")
+            self.assertEqual(variants["current_filter"].value, result["current_filter"])
+            self.assertEqual(variants["choices"].signature, "a(ss)")
+            self.assertEqual(variants["choices"].value, result["choices"])
+        finally:
+            chooser.GLib = original_glib
+            chooser.dbus_connection = original_connection
+            chooser.active_requests = original_requests
+
+    def test_open_file_single_selection_is_truncated(self):
+        code, result = chooser.normalize_submission(
+            0, self.submission(["file:///one", "file:///two"]),
+            "open-file", False, []
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(result["uris"], ["file:///one"])
 
     def test_open_file_rejects_a_directory_result(self):
         with tempfile.TemporaryDirectory() as directory:
             uri = Path(directory).as_uri()
             self.assertEqual(
                 chooser.normalize_submission(
-                    0, json.dumps([uri]), "open-file", False, []
+                    0, self.submission([uri]), "open-file", False, []
                 ),
-                (2, []),
+                (2, {}),
             )
 
     def test_save_files_requires_exact_names_order_and_common_folder(self):
         requested = ["two #.txt", "one π.txt"]
-        valid = '["file:///dest/two%20%23.txt", "file:///dest/one%20%CF%80.txt"]'
-        self.assertEqual(
-            chooser.normalize_submission(0, valid, "save-files", False, requested),
-            (0, ["file:///dest/two%20%23.txt", "file:///dest/one%20%CF%80.txt"]),
+        valid_uris = ["file:///dest/two%20%23.txt", "file:///dest/one%20%CF%80.txt"]
+        code, result = chooser.normalize_submission(
+            0, self.submission(valid_uris), "save-files", False, requested
         )
+        self.assertEqual(code, 0)
+        self.assertEqual(result["uris"], valid_uris)
         invalid_results = [
-            '["file:///dest/one%20%CF%80.txt", "file:///dest/two%20%23.txt"]',
-            '["file:///dest/two%20%23.txt", "file:///other/one%20%CF%80.txt"]',
-            '["file://remote/dest/two%20%23.txt", "file://remote/dest/one%20%CF%80.txt"]',
-            '["file:///dest/../two%20%23.txt", "file:///dest/one%20%CF%80.txt"]',
-            '["file:///dest/two%ZZ%23.txt", "file:///dest/one%20%CF%80.txt"]',
-            '["file:///dest/two%FF.txt", "file:///dest/one%20%CF%80.txt"]',
+            ["file:///dest/one%20%CF%80.txt", "file:///dest/two%20%23.txt"],
+            ["file:///dest/two%20%23.txt", "file:///other/one%20%CF%80.txt"],
+            ["file://remote/dest/two%20%23.txt", "file://remote/dest/one%20%CF%80.txt"],
+            ["file:///dest/../two%20%23.txt", "file:///dest/one%20%CF%80.txt"],
+            ["file:///dest/two%ZZ%23.txt", "file:///dest/one%20%CF%80.txt"],
+            ["file:///dest/two%FF.txt", "file:///dest/one%20%CF%80.txt"],
         ]
-        for result in invalid_results:
-            with self.subTest(result=result):
+        for uris in invalid_results:
+            with self.subTest(uris=uris):
                 self.assertEqual(
                     chooser.normalize_submission(
-                        0, result, "save-files", False, requested
+                        0, self.submission(uris), "save-files", False, requested
                     ),
-                    (2, []),
+                    (2, {}),
+                )
+
+    def test_glob_and_mime_filters_accept_and_reject(self):
+        filters = [
+            ("Text glob", ((0, "*.txt"),)),
+            ("PNG MIME", ((1, "image/png"),)),
+        ]
+        valid_cases = [
+            ("file:///tmp/note.txt", 0),
+            ("file:///tmp/image.png", 1),
+        ]
+        for uri, index in valid_cases:
+            with self.subTest(uri=uri, index=index):
+                code, result = chooser.normalize_submission(
+                    0, self.submission([uri], index), "save-file", False, [], filters
+                )
+                self.assertEqual(code, 0)
+                self.assertEqual(result["current_filter"], filters[index])
+        for uri, index in [("file:///tmp/note.md", 0), ("file:///tmp/image.jpg", 1)]:
+            with self.subTest(uri=uri, index=index):
+                self.assertEqual(
+                    chooser.normalize_submission(
+                        0, self.submission([uri], index), "save-file", False, [], filters
+                    ),
+                    (2, {}),
+                )
+
+    def test_directory_mode_exempts_directories_from_filter(self):
+        filters = [("Text", ((0, "*.txt"),))]
+        with tempfile.TemporaryDirectory() as directory:
+            code, result = chooser.normalize_submission(
+                0, self.submission([Path(directory).as_uri()], 0),
+                "open-dir", False, [], filters
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(result["current_filter"], filters[0])
+
+    def test_exact_choice_results_are_required_and_normalized(self):
+        choices = [
+            ("encoding", "Encoding", (("utf8", "UTF-8"), ("latin1", "Latin-1")), "utf8"),
+            ("readonly", "Read only", (), "false"),
+        ]
+        submitted = [["readonly", "true"], ["encoding", "latin1"]]
+        code, result = chooser.normalize_submission(
+            0, self.submission(["file:///tmp/note.txt"], -1, submitted),
+            "save-file", False, [], (), choices
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(result["choices"], [("encoding", "latin1"), ("readonly", "true")])
+        invalid = [
+            [],
+            [["encoding", "utf8"]],
+            [["encoding", "missing"], ["readonly", "false"]],
+            [["encoding", "utf8"], ["readonly", "maybe"]],
+            [["encoding", "utf8"], ["encoding", "latin1"], ["readonly", "false"]],
+            [["encoding", "utf8"], ["readonly", "false"], ["extra", "x"]],
+        ]
+        for submitted_choices in invalid:
+            with self.subTest(choices=submitted_choices):
+                self.assertEqual(
+                    chooser.normalize_submission(
+                        0, self.submission(["file:///tmp/note.txt"], -1, submitted_choices),
+                        "save-file", False, [], (), choices
+                    ),
+                    (2, {}),
                 )
 
     def test_cancel_has_no_results_and_malformed_success_is_error(self):
         self.assertEqual(
             chooser.normalize_submission(
-                1, '["file:///ignored"]', "open-file", True, []
+                1, self.submission(["file:///ignored"]), "open-file", True, []
             ),
-            (1, []),
+            (1, {}),
         )
+        malformed = [
+            '{"not":"the schema"}',
+            '["file:///tmp/file"]',
+            '{"uris":["file:///tmp/file"],"currentFilter":-1,"choices":[],"extra":true}',
+        ]
+        for value in malformed:
+            self.assertEqual(
+                chooser.normalize_submission(0, value, "open-file", True, []),
+                (2, {}),
+            )
         self.assertEqual(
-            chooser.normalize_submission(0, '{"not":"a list"}', "open-file", True, []),
-            (2, []),
-        )
-        self.assertEqual(
-            chooser.normalize_submission(99, "[]", "open-file", True, []),
-            (2, []),
+            chooser.normalize_submission(99, "{}", "open-file", True, []),
+            (2, {}),
         )
 
 

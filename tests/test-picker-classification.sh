@@ -23,9 +23,20 @@ for _ in $(seq 1 100); do
 done
 [[ -f $ready ]]
 
-payload='{"kind":"picker","folder":"/tmp","requestId":"/org/freedesktop/portal/desktop/request/1_2/test","mode":"open-file","multiple":false,"suggestedName":"","files":[]}'
+payload='{"choices":[{"id":"encoding","label":"Encoding","options":[{"id":"utf8","label":"UTF-8"}],"selected":"utf8"}],"currentFilter":1,"files":[],"filters":[{"name":"Text","rules":[{"type":0,"value":"*.txt"}]},{"name":"Images","rules":[{"type":1,"value":"image/*"}]}],"folder":"/tmp","kind":"picker","mode":"open-file","multiple":false,"requestId":"/org/freedesktop/portal/desktop/request/1_2/test","suggestedName":""}'
+"$BINARY" --test-picker-payload "$payload"
 picker_output=$(OMAFILES_TEST_CLASSIFY_ONLY=1 QT_QPA_PLATFORM=offscreen "$BINARY" "$payload")
 [[ $picker_output == picker-independent ]]
+
+invalid_picker_payloads=(
+  '{"kind":"picker","folder":"/tmp","requestId":"/request/test","mode":"open-file","multiple":false,"suggestedName":"","files":[]}'
+  '{"choices":[],"currentFilter":1,"files":[],"filters":[],"folder":"/tmp","kind":"picker","mode":"open-file","multiple":false,"requestId":"/request/test","suggestedName":""}'
+  '{"choices":[],"currentFilter":0,"files":[],"filters":[{"name":"Text","rules":[{"type":2,"value":"*.txt"}]}],"folder":"/tmp","kind":"picker","mode":"open-file","multiple":false,"requestId":"/request/test","suggestedName":""}'
+  '{"choices":[{"id":"encoding","label":"Encoding","options":[{"id":"utf8","label":"UTF-8"}],"selected":"missing"}],"currentFilter":-1,"files":[],"filters":[],"folder":"/tmp","kind":"picker","mode":"open-file","multiple":false,"requestId":"/request/test","suggestedName":""}'
+)
+for invalid_payload in "${invalid_picker_payloads[@]}"; do
+  ! "$BINARY" --test-picker-payload "$invalid_payload"
+done
 
 # If the picker had claimed or removed the socket, this normal delivery fails.
 normal_output=$(OMAFILES_TEST_CLASSIFY_ONLY=1 QT_QPA_PLATFORM=offscreen "$BINARY" /tmp)

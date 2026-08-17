@@ -6,7 +6,9 @@
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSet>
+#include <QVariantMap>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTextStream>
@@ -137,6 +139,36 @@ QVariantList MimeResolver::getAppsForFile(const QString &path) {
   }
 
   return out;
+}
+
+bool MimeResolver::matchesFilter(const QString &path, const QVariantList &rules) {
+  if (path.isEmpty() || rules.isEmpty()) return false;
+  const QFileInfo fileInfo(path);
+  QMimeDatabase database;
+  QMimeType actualMime;
+  for (const QVariant &ruleValue : rules) {
+    const QVariantMap rule = ruleValue.toMap();
+    bool ok = false;
+    const int type = rule.value(QStringLiteral("type")).toInt(&ok);
+    const QString value = rule.value(QStringLiteral("value")).toString();
+    if (!ok || value.isEmpty()) continue;
+    if (type == 0) {
+      const QRegularExpression expression(
+          QRegularExpression::wildcardToRegularExpression(value));
+      if (expression.isValid() && expression.match(fileInfo.fileName()).hasMatch())
+        return true;
+    } else if (type == 1) {
+      if (!actualMime.isValid())
+        actualMime = database.mimeTypeForFile(fileInfo, QMimeDatabase::MatchDefault);
+      if (!actualMime.isValid()) continue;
+      if (value.endsWith(QLatin1String("/*"))) {
+        if (actualMime.name().startsWith(value.left(value.size() - 1))) return true;
+      } else if (actualMime.name() == value || actualMime.inherits(value)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 void MimeResolver::launchApp(const QString &desktopId, const QString &path) {

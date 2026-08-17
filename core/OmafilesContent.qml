@@ -36,6 +36,57 @@ Item {
     || PaletteState.paletteOpen || PreviewState.openWithOpen || DialogsState.bulkRenameOpen
     || ChmodState.chmodOpen || PropertiesState.propertiesOpen || DialogsState.connectServerOpen
 
+  function _exactKeys(object, keys) {
+    return object && typeof object === "object" && !Array.isArray(object)
+      && Object.keys(object).sort().join(",") === keys.slice().sort().join(",")
+  }
+
+  function _validText(value, allowEmpty) {
+    return typeof value === "string" && (allowEmpty || value.length > 0)
+      && value.indexOf("\0") < 0
+  }
+
+  function _validPickerContract(payload) {
+    if (!_exactKeys(payload, ["choices", "currentFilter", "files", "filters", "folder",
+                                      "kind", "mode", "multiple", "requestId", "suggestedName"])
+        || !Array.isArray(payload.filters) || !Array.isArray(payload.choices)
+        || typeof payload.currentFilter !== "number"
+        || Math.floor(payload.currentFilter) !== payload.currentFilter) return false
+    for (var filterIndex = 0; filterIndex < payload.filters.length; filterIndex++) {
+      var filter = payload.filters[filterIndex]
+      if (!_exactKeys(filter, ["name", "rules"]) || !_validText(filter.name, false)
+          || !Array.isArray(filter.rules) || filter.rules.length === 0) return false
+      for (var ruleIndex = 0; ruleIndex < filter.rules.length; ruleIndex++) {
+        var rule = filter.rules[ruleIndex]
+        if (!_exactKeys(rule, ["type", "value"]) || (rule.type !== 0 && rule.type !== 1)
+            || !_validText(rule.value, false)) return false
+      }
+    }
+    if ((payload.filters.length === 0 && payload.currentFilter !== -1)
+        || (payload.filters.length > 0
+            && (payload.currentFilter < 0 || payload.currentFilter >= payload.filters.length))) return false
+    var choiceIds = ({})
+    for (var choiceIndex = 0; choiceIndex < payload.choices.length; choiceIndex++) {
+      var choice = payload.choices[choiceIndex]
+      if (!_exactKeys(choice, ["id", "label", "options", "selected"])
+          || !_validText(choice.id, false) || !_validText(choice.label, false)
+          || !_validText(choice.selected, false) || !Array.isArray(choice.options)
+          || choiceIds[choice.id] === true) return false
+      choiceIds[choice.id] = true
+      var optionIds = ({})
+      for (var optionIndex = 0; optionIndex < choice.options.length; optionIndex++) {
+        var option = choice.options[optionIndex]
+        if (!_exactKeys(option, ["id", "label"]) || !_validText(option.id, false)
+            || !_validText(option.label, false) || optionIds[option.id] === true) return false
+        optionIds[option.id] = true
+      }
+      if ((choice.options.length > 0 && optionIds[choice.selected] !== true)
+          || (choice.options.length === 0
+              && choice.selected !== "true" && choice.selected !== "false")) return false
+    }
+    return true
+  }
+
   // ---------- Lifecycle (open/close the host window) ----------
   function open(payload) {
     root.opened = true
@@ -68,8 +119,7 @@ Item {
       for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
         if (Utils.validBasename(files[fileIndex])) validFiles.push(String(files[fileIndex]))
       }
-      var schema = ["files", "folder", "kind", "mode", "multiple", "requestId", "suggestedName"]
-      PickerState.active = Object.keys(pickerPayload).sort().join(",") === schema.join(",")
+      PickerState.active = root._validPickerContract(pickerPayload)
         && modes.indexOf(pickerPayload.mode) >= 0
         && String(pickerPayload.requestId || "").length > 0
         && typeof pickerPayload.multiple === "boolean"
@@ -81,6 +131,11 @@ Item {
       PickerState.multiple = PickerState.active && pickerPayload.multiple === true
       PickerState.suggestedName = PickerState.active ? String(pickerPayload.suggestedName || "") : ""
       PickerState.saveFiles = PickerState.active ? validFiles : []
+      if (PickerState.active)
+        PickerState.configureContract(pickerPayload.filters, pickerPayload.currentFilter,
+                                      pickerPayload.choices)
+      else
+        PickerState.resetContract()
     } else {
       PickerState.active = false
       PickerState.sessionActive = false
@@ -88,6 +143,7 @@ Item {
       PickerState.multiple = false
       PickerState.suggestedName = ""
       PickerState.saveFiles = []
+      PickerState.resetContract()
     }
 
     var targetPath = (folderPart && folderPart.charAt(0) === "/") ? folderPart : ""
@@ -123,7 +179,7 @@ Item {
   }
 
   function cancelPicker() {
-    if (PickerState.active && !PickerResponder.submit(1, [])) return false
+    if (PickerState.active && !PickerResponder.submit(1, PickerState.resultMap([]))) return false
     PickerState.active = false
     if (!root.close()) return false
     root.requestClose()
@@ -131,7 +187,7 @@ Item {
   }
 
   function close() {
-    if (PickerState.active && !PickerResponder.submit(1, [])) return false
+    if (PickerState.active && !PickerResponder.submit(1, PickerState.resultMap([]))) return false
     PickerState.active = false
     if (!PickerState.sessionActive) registry.persistence.saveSession()
     root.opened = false
@@ -162,6 +218,7 @@ Item {
     DialogsState.connectServerOpen = false
     PickerState.active = false
     PickerState.saveFiles = []
+    PickerState.resetContract()
     return true
   }
 
