@@ -1,17 +1,15 @@
 #!/usr/bin/python3
-# Implements org.freedesktop.Application for Omafiles, so that it's a
-# D-BUS-ACTIVATABLE file manager.
+# Implements org.freedesktop.Application for callers that explicitly use the
+# interface to open or reveal a file.
 #
-# Why it's needed: Firefox/Zen "open containing folder" doesn't use xdg-mime
-# nor org.freedesktop.FileManager1 -- it activates the default .desktop of
-# inode/directory via org.freedesktop.Application.Open, and it only works if that
-# manager exposes this interface (Nautilus has it by being a GApplication; omafiles
-# doesn't). Without it, Zen resolves the default (omafiles) but, being unable to activate it
-# over D-Bus, falls back to the first DBusActivatable manager it finds (Nautilus).
+# The desktop launcher deliberately uses its Exec command instead of D-Bus
+# activation. A user's D-Bus activation environment is shared across concurrent
+# graphical sessions and may point to an inactive display; Exec inherits the
+# launcher's current display. This service remains available for clients that
+# call org.freedesktop.Application directly.
 #
-# The bus name (io.github.percius04.omafiles) MUST match the basename
-# of the DBusActivatable .desktop (io.github.percius04.omafiles.desktop) and the
-# object path its form in /. It forwards to `omafiles <payload>` (single
+# The bus name (io.github.percius04.omafiles) matches the desktop basename and
+# the object path its form in /. It forwards to `omafiles <payload>` (single
 # instance), with the same payload format as core/OmafilesContent.open():
 # "folder" or "folder\nname1\x1fname2" (reveal/select).
 

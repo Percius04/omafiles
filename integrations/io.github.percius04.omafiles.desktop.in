@@ -8,5 +8,5 @@ Icon=omafiles
 Terminal=false
 Categories=System;FileManager;
 MimeType=inode/directory;
-DBusActivatable=true
+DBusActivatable=false
 StartupWMClass=omafiles

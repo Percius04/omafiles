@@ -33,6 +33,14 @@ foreach(descriptor IN LISTS descriptors)
   endif()
 endforeach()
 
+set(desktop_entry "${stage}@OMAFILES_DATA_INSTALL_DIR@/applications/io.github.percius04.omafiles.desktop")
+file(READ "${desktop_entry}" desktop_content)
+if(desktop_content MATCHES "(^|\n)DBusActivatable=true($|\n)")
+  message(FATAL_ERROR
+    "Desktop launcher must execute in the caller's graphical session; "
+    "DBusActivatable=true can redirect it to another same-user session")
+endif()
+
 set(shared_service "${stage}@OMAFILES_DATA_INSTALL_DIR@/dbus-1/services/org.freedesktop.FileManager1.service")
 if(EXISTS "${shared_service}")
   message(FATAL_ERROR "Package must not install the shared FileManager1 service: ${shared_service}")
