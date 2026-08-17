@@ -1,8 +1,6 @@
 # Omafiles
 
-A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.0`). It is not a wrapper around Nautilus/Dolphin/Thunar, and not a layer-shell popup either — it's a real, tileable window that opens and behaves like any other app on your desktop, using Omarchy's own design system (`qs.Commons`/`qs.Ui`) end to end: same typography, same borders, same hover/selection chrome, same Nerd Font icons as the rest of the shell.
-
-![Omafiles screenshot](preview.png)
+A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.1`). It is not an Omarchy shell plugin and does not wrap Nautilus, Dolphin, or Thunar. It runs as a normal tileable desktop window and uses Omarchy's `qs.Commons` and `qs.Ui` design system.
 
 ## Why
 
@@ -53,9 +51,9 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 ### File operations
 
 - Rename, new folder, new file, make link, delete (to trash), copy / cut / paste, drag-and-drop, compress, extract, and bulk rename.
-- Nothing silently clobbers an existing name: copy/cut/paste/drag show a real overwrite / skip / cancel dialog; extract/compress/bulk-rename show their own equivalent; rename asks to confirm an overwrite; new folder / new file / make link refuse with a clear error instead of failing quietly.
-- Copy/move show a "still working" indicator with **Cancel** and a real percentage + progress bar (estimated from source size vs. bytes landed — `cp`/`mv` don't report progress themselves), and a cancel leaves no half-written file or tree behind.
-- Copy/cut sync with the system clipboard (`wl-copy`, `text/uri-list`): paste files copied in Omafiles into another app, or files copied elsewhere into Omafiles (`Ctrl+V` falls back to the system clipboard when nothing's copied inside the app). "Copy path" puts the plain-text path(s) on the clipboard instead.
+- Nothing silently clobbers an existing name: copy/cut/paste/drag show overwrite / skip / cancel choices; extract/compress/bulk-rename show their own conflict flow; rename refuses an existing target; new folder / new file / make link report conflicts.
+- Copy and move use native byte progress. Overwrites are staged beside the destination and committed only after the replacement is complete. Cancellation and pre-commit failure preserve the old destination.
+- Copy/cut sync through the Qt system clipboard. `Ctrl+V` can also import an external `text/uri-list` through `wl-paste`. "Copy path" puts shell-quoted plain-text paths on the clipboard.
 - Rubber-band selection (drag over empty space; `Ctrl` adds to the selection), range selection with `Shift`+`j`/`k`/`↑`/`↓`, and drag-and-drop both out to and in from other apps.
 
 ### Undo / Redo
@@ -87,7 +85,7 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 
 ### Default file manager (`org.freedesktop.FileManager1`)
 
-- Registers itself as the system's default file manager on first launch — both for opening directories (`inode/directory` via `xdg-mime`) and for "Show in file manager" (the `org.freedesktop.FileManager1` D-Bus interface). See [System integration](#system-integration).
+- Optional, explicit integration supports opening directories, "Show in file manager," and portal-based Open/Save dialogs. OmaFiles never changes these defaults on app launch. See [System integration](#system-integration).
 
 ### Thumbnails
 
@@ -121,7 +119,7 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 
 - A real tiled Wayland window (a Qt `ApplicationWindow`), not a modal overlay or layer-shell popup — it tiles alongside your terminal and editor like any other app.
 - A single instance is enforced: a second `omafiles [path]` navigates the running window (raising it) instead of opening a new one.
-- The active panel's folder refreshes live (via a native `QFileSystemWatcher`) instead of only on `F5`; drives and network locations are polled every few seconds.
+- The active panel refreshes through `QFileSystemWatcher`; drives react to UDisks2 events. Network mounts refresh on app and mount actions.
 - Every icon is a verified Nerd Font glyph (checked against the installed font's cmap) — no emoji. Broken symlinks are flagged clearly (distinct icon, red name, "Broken link").
 - Basic screen-reader support (`Accessible.role`/`Accessible.name`) on the file list, sidebar, nav buttons, text inputs, and dialog buttons.
 
@@ -200,55 +198,69 @@ The command runs fire-and-forget with a `cd` into the item's folder. The file is
 
 ## Installation
 
-Omafiles is a **Qt6 standalone application** (no longer a Quickshell plugin), fully independent of Omarchy and of this repository. Clone it **anywhere**, build, and install to `~/.local` (no root):
+OmaFiles is a standalone Qt6 application, not an Omarchy shell plugin. Build and test it before installing to `~/.local`:
 
 ```bash
 git clone https://github.com/Percius04/omafiles
 cd omafiles
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja -C build
-cmake --install build      # binary, backend .so, QML/scripts/assets, icon
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+cmake --install build
 ```
 
-`cmake --install` deploys everything to standard XDG locations, so **once installed you can delete the cloned repo and Omafiles keeps working**:
+The default user install contains:
 
-- binary → `~/.local/bin/omafiles`
-- backend module → `~/.local/lib/qt6/qml/Omafiles/Backend/`
-- QML, scripts and assets → `~/.local/share/omafiles/` (`$XDG_DATA_HOME`)
-- icon → `~/.local/share/icons/hicolor/scalable/apps/omafiles.svg`
+- `~/.local/bin/omafiles`
+- `~/.local/lib/qt6/qml/Omafiles/Backend/`
+- `~/.local/share/omafiles/`
+- desktop, D-Bus, portal, and icon files under `~/.local/share/`
 
-Config lives in `~/.config/omafiles/` (`$XDG_CONFIG_HOME`), persistent state in `~/.local/state/omafiles/` (`$XDG_STATE_HOME`), and caches in `~/.cache/omafiles/` (`$XDG_CACHE_HOME`). Running from a source checkout still loads QML live from the tree, so development iteration is unchanged.
+The installed app does not need the source checkout. Config lives in `~/.config/omafiles/`, state in `~/.local/state/omafiles/`, and caches in `~/.cache/omafiles/`.
 
-Run it from the terminal (`omafiles`, or `omafiles <folder>`), or bind a key in `~/.config/hypr/bindings.lua`:
+Run `omafiles` or `omafiles <folder>`. An Omarchy key binding can launch the installed app:
 
 ```lua
-o.bind("SUPER + SHIFT + F", "Omafiles (file manager)", { launch = "omafiles" })
+o.bind("SUPER + SHIFT + F", "OmaFiles", { launch = "omafiles" })
 ```
 
-### Optional dependencies
+### Runtime dependencies
 
-OmaFiles works fully without these packages. When installed, they enable additional integrations or faster backends.
+The Arch package declares the required Qt, Python/GObject, portal, UDisks, clipboard, and archive tools. Optional tools add these features:
 
 | Tool | Enables |
 | --- | --- |
-| **tracker3** / **plocate** | Faster global filename search (otherwise falls back to the built-in recursive search engine) |
-| **ffmpegthumbnailer** | Video thumbnails |
-| **gvfs** / **gvfs-smb** | Network locations (SFTP, FTP, WebDAV, SMB) |
-| **python-gobject (Gio)** | D-Bus desktop integration and FileChooser portal support (if using the Python service helpers) |
-
-**No longer required:** `xdg-mime`, `xdg-terminal-exec`, `gio` (shell commands), `ffprobe`, `python-pygments`, `content-search.sh`, `empty-trash.sh`, and `inotifywait` have all been replaced by native C++ implementations.
+| `plocate` | Faster indexed filename search |
+| `ffmpegthumbnailer` | Video thumbnails |
+| `gvfs` / `gvfs-smb` | Network locations |
+| `7zip` / `unrar` | 7z and RAR browsing |
+| `libnotify` | Desktop notifications |
 
 ## System integration
 
-Omafiles sets itself as the system's default file manager automatically on first launch — nothing to run by hand. It registers both handoff mechanisms Linux apps use:
+Installation does **not** change system defaults. Enable full integration only after reviewing the effect:
 
-- **Opening directories** (`xdg-open`, "Open folder" actions): a `~/.local/share/applications/io.github.percius04.omafiles.desktop` (a reverse-DNS ID, required for D-Bus activation) with `MimeType=inode/directory`, set via `xdg-mime default`.
-- **"Show in file manager"** (Firefox downloads, GTK/Qt "reveal in folder"): these go over the `org.freedesktop.FileManager1` D-Bus interface, not `.desktop`/`xdg-mime`, and Nautilus normally owns it. Omafiles ships a user-level service file for the same bus name (`~/.local/share/dbus-1/services/`), which takes priority over Nautilus's system one, backed by `scripts/dbus-filemanager1.py`.
-- **File Chooser Portal** (Save/Open dialogs from browser and GTK apps): these go over the `org.freedesktop.impl.portal.FileChooser` interface. Omafiles implements this portal backend via a user-level D-Bus service (`scripts/dbus-filechooser.py`), registering it as the preferred backend in `portals.conf` (and desktop-specific files like `hyprland-portals.conf`). Picker dialogs run with window class / `app_id` `omafiles-picker` so window managers can float and center them (e.g. in Hyprland: `windowrulev2 = float, class:^(omafiles-picker)$` and `windowrulev2 = size 900 600, class:^(omafiles-picker)$`).
+```bash
+~/.local/share/omafiles/scripts/install-integrations.sh --enable
+```
 
-This is idempotent and only runs once (tracked in `~/.local/state/omafiles/integrations-version`), so it won't fight you if you switch the default back by hand. To undo it: `xdg-mime default nautilus.desktop inode/directory`, then remove the two files above.
+This opt-in action:
 
-Because it's a normal Wayland window, it tiles under Hyprland like any app, opens from other applications' "reveal in folder" actions, and enforces a single instance (a second launch navigates the existing window).
+- sets `inode/directory` to `io.github.percius04.omafiles.desktop`;
+- installs a user-level `org.freedesktop.FileManager1` service without replacing Nautilus's package-owned system file;
+- selects OmaFiles for the FileChooser portal in the user portal config;
+- records exact prior MIME, portal, and user service state under `~/.local/state/omafiles/integrations/`.
+
+Inspect or undo it with:
+
+```bash
+~/.local/share/omafiles/scripts/install-integrations.sh --status
+~/.local/share/omafiles/scripts/install-integrations.sh --disable
+```
+
+Disable restores unchanged managed files to their recorded baseline. If you edit a managed MIME, portal, or D-Bus file after enabling, disable preserves your edit, reports an incomplete rollback, and keeps the enabled marker for review.
+
+Picker windows use app ID `omafiles-picker`. They run outside the normal single-instance socket, bind portal responses to their D-Bus sender, and never save picker navigation or geometry as normal app state.
 
 ## Architecture
 
@@ -267,16 +279,23 @@ Omafiles is a thin, declarative QML front-end over a shared high-performance nat
   - `MimeResolver`, `TerminalResolver` & `NetworkResolver` — native association, terminal detection, and socket status checks without spawning shell subprocesses.
   - Plus `ProcessRunner`, `ProcessWatcher`, `Detached`, `FolderCounter`, `JsonStore`, `Env`, and `Notifier`.
 
-## Testing & Quality Gates
+## Testing and quality gates
 
-Omafiles enforces strict automated quality and performance gates before every release:
+Run the complete tracked gate with:
 
-- **Headless Self-Check Suite:** `omafiles --selfcheck` runs an automated in-memory test suite verifying **85/85** checks across filesystem operations, undo/redo stacks, D-Bus interfaces, and UI instantiation.
-- **Performance Regression Gate:** `python3 bench/bench-gate.py --check-gate` validates cold startup, memory usage, large directory listings (up to 100k files), search latency, and I/O throughput against the canonical baseline (`bench/baseline.json`).
+```bash
+cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The v0.9.1 gate includes native data-safety tests, Python portal tests, isolated integration lifecycle tests, installed-layout checks, and **96 source plus 96 installed-tree selfchecks**. The installed-tree test stages the app and forces it to run without source-tree resources.
+
+No deterministic performance release gate is currently claimed. `tests/check-benchmark-status.sh` exits nonzero until a maintained benchmark exists.
 
 ## Status
 
-Stable Release (`v0.9.0`) — ready for production use.
+`v0.9.1` is validated for local use. The repository tag and package recipe must identify the same tested source before public release.
 
 ## License
 

@@ -1,5 +1,42 @@
 # OmaFiles Changelog
 
+## [0.9.1] - 2026-08-17
+
+This release hardens data safety, asynchronous action state, trash identity, and desktop integration.
+
+### Safety
+
+* Rejects copy and move targets that equal or sit inside the source.
+* Stages overwrite replacements and rolls back failed commits instead of deleting the old destination first.
+* Validates mounted trash roots without following symlinked root, `files`, or `info` directories.
+* Preserves trash metadata when payload deletion fails.
+* Protects preview workers from provider teardown and preserves relative symlink targets.
+* Validates rename, new-item, and bulk-rename basenames at UI and backend boundaries.
+
+### Actions and undo
+
+* Correlates native completion signals and serializes mkdir with other native operations.
+* Records one undo entry for each completed move or trash item, including partial batches.
+* Moves undo and redo entries only after asynchronous success.
+* Captures absolute chmod targets so navigation cannot redirect undo.
+* Rejects rename-over-existing-item rather than offering an undo that cannot restore displaced data.
+* Uses exact mounted-trash payload paths, so duplicate display names cannot target another volume.
+
+### Desktop integration
+
+* Makes default-file-manager and portal setup explicit with `install-integrations.sh --enable`.
+* Adds reversible `--disable` and inspectable `--status` flows with baseline and edit preservation.
+* Installs layout-correct desktop, D-Bus, and portal descriptors without conflicting with Nautilus's system FileManager1 service.
+* Implements encoded local-file URIs and the ordered `SaveFiles` portal contract.
+* Binds picker responses to the launched process's D-Bus sender and handles request closure without orphan windows.
+* Adds the required Arch runtime dependencies and portable binary lookup.
+
+### Verification
+
+* Restores the tracked selfcheck harness and registers it with CTest.
+* Adds native data-safety tests, portal helper tests, reversible integration tests, installed-layout tests, and source/installed-tree selfchecks.
+* Current release gate: 61 native safety checks, 11 portal helper tests, and 96 source plus 96 installed-tree selfchecks.
+
 ## [0.9.0] - 2026-08-15
 
 OmaFiles v0.9.0 stable is the culmination of the standalone Qt6 generation. This release completely transitions OmaFiles from a shell-integrated prototype into a high-performance native desktop application with zero external shell dependencies in its hot paths.

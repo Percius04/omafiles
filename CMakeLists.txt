@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(omafiles VERSION 0.9.0 LANGUAGES CXX)
+project(omafiles VERSION 0.9.1 LANGUAGES CXX)
 
 include(CTest)
 
@@ -151,12 +151,11 @@ install(DIRECTORY "${CMAKE_BINARY_DIR}/qml/Omafiles"
 # ---------------------------------------------------------------------------
 # Installation of the standalone binary (Phase 25: official Qt6 frontend)
 # ---------------------------------------------------------------------------
-# The executable is installed RENAMED to `omafiles` in ~/.local/bin (in the user's
-# PATH, without root). The QML is still loaded from the repo (OMAFILES_SOURCE_
-# DIR) during RC1: the repo is the stable install path for now; the
-# packaging with qrc/AUR comes after v0.9.0-rc1. The .desktop, the icon and
-# the FileManager1 D-Bus service are installed by scripts/install-integrations.sh
-# (idempotent, launched by AppBindings on open).
+# The executable is installed RENAMED to `omafiles`. User builds default to
+# ~/.local/bin; package builds override this with /usr/bin. Runtime QML, scripts,
+# assets, and integration descriptors are installed below, so the source checkout
+# is not needed after installation. User defaults remain explicit and reversible
+# through scripts/install-integrations.sh --enable/--disable.
 set(OMAFILES_BIN_INSTALL_DIR "$ENV{HOME}/.local/bin"
     CACHE PATH "Path where the omafiles binary is installed")
 install(PROGRAMS "$<TARGET_FILE:omafiles-standalone>"
