@@ -1,0 +1,4 @@
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.omafiles
+Interfaces=org.freedesktop.impl.portal.FileChooser;
+UseIn=Hyprland;

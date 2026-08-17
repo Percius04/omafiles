@@ -43,6 +43,15 @@ QtObject {
     return "file://" + String(path).split("/").map(encodeURIComponent).join("/")
   }
 
+  function saveFilesResultUris(folder, names) {
+    var uris = []
+    for (var i = 0; i < names.length; i++) {
+      var path = folder === "/" ? "/" + names[i] : folder + "/" + names[i]
+      uris.push(fileUrl(path))
+    }
+    return uris
+  }
+
   // Single-quote a string for bash. The replace handles embedded single
   // quotes by closing, escaping, and re-opening the literal.
   function shellQuote(value) {

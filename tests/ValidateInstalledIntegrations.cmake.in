@@ -1,0 +1,57 @@
+# Validate configured desktop/service targets in an isolated staged install.
+set(stage "@CMAKE_BINARY_DIR@/integration-install-root")
+file(REMOVE_RECURSE "${stage}")
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" -E env "DESTDIR=${stage}"
+          "@CMAKE_COMMAND@" --install "@CMAKE_BINARY_DIR@"
+  RESULT_VARIABLE install_result
+  OUTPUT_VARIABLE install_output
+  ERROR_VARIABLE install_error)
+if(NOT install_result EQUAL 0)
+  message(FATAL_ERROR "Staged integration install failed (${install_result})\n${install_output}\n${install_error}")
+endif()
+
+set(descriptors
+  "${stage}@OMAFILES_DATA_INSTALL_DIR@/applications/io.github.percius04.omafiles.desktop"
+  "${stage}@OMAFILES_DATA_INSTALL_DIR@/dbus-1/services/io.github.percius04.omafiles.service"
+  "${stage}@OMAFILES_DATA_INSTALL_DIR@/dbus-1/services/org.freedesktop.impl.portal.desktop.omafiles.service")
+foreach(descriptor IN LISTS descriptors)
+  if(NOT EXISTS "${descriptor}")
+    message(FATAL_ERROR "Missing installed integration descriptor: ${descriptor}")
+  endif()
+  file(READ "${descriptor}" descriptor_content)
+  string(REGEX MATCH "Exec=([^ \n]+)" exec_match "${descriptor_content}")
+  if(NOT exec_match)
+    message(FATAL_ERROR "Descriptor has no Exec target: ${descriptor}")
+  endif()
+  set(exec_path "${CMAKE_MATCH_1}")
+  if("@OMAFILES_DATA_INSTALL_DIR@" MATCHES "^/usr" AND exec_path MATCHES "/\\.local/")
+    message(FATAL_ERROR "/usr descriptor has a user-install assumption: ${exec_path}")
+  endif()
+  if(NOT EXISTS "${stage}${exec_path}")
+    message(FATAL_ERROR "Descriptor target does not exist in stage: ${exec_path}")
+  endif()
+endforeach()
+
+set(shared_service "${stage}@OMAFILES_DATA_INSTALL_DIR@/dbus-1/services/org.freedesktop.FileManager1.service")
+if(EXISTS "${shared_service}")
+  message(FATAL_ERROR "Package must not install the shared FileManager1 service: ${shared_service}")
+endif()
+set(resource_shared "${stage}@OMAFILES_RES_DEST@/integrations/org.freedesktop.FileManager1.service")
+if(NOT EXISTS "${resource_shared}")
+  message(FATAL_ERROR "Missing resource copy of the shared FileManager1 service")
+endif()
+file(READ "${resource_shared}" shared_content)
+string(REGEX MATCH "Exec=([^ \n]+)" shared_exec_match "${shared_content}")
+if(NOT shared_exec_match OR NOT EXISTS "${stage}${CMAKE_MATCH_1}")
+  message(FATAL_ERROR "Resource FileManager1 descriptor has no staged Exec target")
+endif()
+
+if(NOT EXISTS "${stage}@OMAFILES_DATA_INSTALL_DIR@/xdg-desktop-portal/portals/omafiles.portal")
+  message(FATAL_ERROR "Missing installed portal descriptor")
+endif()
+file(GLOB_RECURSE live_config_writes "${stage}/home/*/.config/*")
+if(live_config_writes)
+  message(FATAL_ERROR "Package install unexpectedly wrote user config: ${live_config_writes}")
+endif()
+message("staged integration layout: PASS")

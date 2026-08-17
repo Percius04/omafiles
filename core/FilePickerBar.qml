@@ -15,57 +15,58 @@ Rectangle {
   border.width: Style.spacing.hairline
   radius: Style.cornerRadius
 
-  signal responseSubmitted(string requestId, int responseCode, var results)
+  signal responseSubmitted()
 
   function submit() {
     var uris = []
     if (PickerState.mode === "save-file") {
-      var name = saveFieldName.text.trim()
-      if (name.length > 0) {
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, name))
-      } else {
-        return // don't submit empty name for save
-      }
+      var name = saveFieldName.text
+      if (!Utils.validBasename(name)) return
+      uris.push(Util.fileUrl(Utils.joinPath(NavState.currentPath, name)))
+    } else if (PickerState.mode === "save-files") {
+      uris = Util.saveFilesResultUris(NavState.currentPath, PickerState.saveFiles)
     } else if (PickerState.mode === "open-dir") {
       var selected = SelectionState.selectedEntries()
       if (selected.length > 0) {
         for (var i = 0; i < selected.length; i++) {
           if (selected[i].type === "dir") {
-            uris.push("file://" + Utils.joinPath(NavState.currentPath, selected[i].name))
+            uris.push(Util.fileUrl(Utils.joinPath(NavState.currentPath, selected[i].name)))
           }
         }
       }
-      if (uris.length === 0) {
-        uris.push("file://" + NavState.currentPath)
-      }
+      if (uris.length === 0) uris.push(Util.fileUrl(NavState.currentPath))
     } else { // open-file
       var selected = SelectionState.selectedEntries()
       for (var i = 0; i < selected.length; i++) {
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, selected[i].name))
+        if (selected[i].type !== "dir")
+          uris.push(Util.fileUrl(Utils.joinPath(NavState.currentPath, selected[i].name)))
       }
-      // If nothing is explicitly selected but there is a highlighted item, select it
+      // If nothing is explicitly selected but there is a highlighted file, use it.
       if (uris.length === 0 && SelectionState.selectedIndex >= 0 && SelectionState.selectedIndex < NavState.visibleEntries.length) {
         var entry = NavState.visibleEntries[SelectionState.selectedIndex]
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, entry.name))
+        if (entry.type !== "dir")
+          uris.push(Util.fileUrl(Utils.joinPath(NavState.currentPath, entry.name)))
       }
     }
 
     if (uris.length > 0) {
-      if (!PickerState.multiple && uris.length > 1) {
+      if (PickerState.mode !== "save-files" && !PickerState.multiple && uris.length > 1) {
         uris = [uris[0]]
       }
-      var reqId = PickerState.requestId
-      PickerState.active = false
-      PickerState.requestId = ""
-      responseSubmitted(reqId, 0, uris)
+      // PickerResponder uses a blocking call on this process's D-Bus
+      // connection. Keep the picker open when the service rejects the reply.
+      if (PickerResponder.submit(0, uris)) {
+        PickerState.active = false
+        responseSubmitted()
+      }
     }
   }
 
   function cancel() {
-    var reqId = PickerState.requestId
-    PickerState.active = false
-    PickerState.requestId = ""
-    responseSubmitted(reqId, 1, [])
+    if (PickerResponder.submit(1, [])) {
+      PickerState.active = false
+      responseSubmitted()
+    }
   }
 
   // Monitor suggestedName to keep the TextField updated
@@ -93,7 +94,9 @@ Rectangle {
 
     Text {
       id: modeLabel
-      text: PickerState.mode === "save-file" ? "Save as:" : (PickerState.mode === "open-dir" ? "Choose folder:" : "Open:")
+      text: PickerState.mode === "save-file" ? "Save as:"
+        : (PickerState.mode === "save-files" ? "Choose destination:"
+        : (PickerState.mode === "open-dir" ? "Choose folder:" : "Open:"))
       color: Color.menu.text
       font.pixelSize: Style.font.body
       font.family: Style.font.family
@@ -136,7 +139,8 @@ Rectangle {
     }
 
     Button {
-      text: PickerState.mode === "save-file" ? "Save" : (PickerState.mode === "open-dir" ? "Choose" : "Open")
+      text: PickerState.mode === "save-file" ? "Save"
+        : (PickerState.mode === "save-files" || PickerState.mode === "open-dir" ? "Choose" : "Open")
       bordered: true
       anchors.verticalCenter: parent.verticalCenter
       onClicked: pickerBar.submit()

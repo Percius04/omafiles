@@ -1,5 +1,6 @@
 import QtQuick
 import Omafiles.Backend as Backend
+import qs.Commons
 import "../../../state"
 import "../../../shared/Utils.js" as Utils
 
@@ -7,6 +8,44 @@ import "../../../shared/Utils.js" as Utils
 // Structural refactor only — behavior unchanged.
 QtObject {
   function register(sc) {
+        sc.add("File picker URI encoding round-trips reserved characters", function (done) {
+          var path = "/tmp/Oma Files/#draft? 100% [π].txt"
+          var uri = Util.fileUrl(path)
+          var decoded = decodeURIComponent(uri.substring("file://".length))
+          done(decoded === path && uri.indexOf("#draft") < 0 && uri.indexOf("? 100") < 0,
+               "uri=" + uri)
+        })
+
+        sc.add("SaveFiles destination URIs preserve requested order", function (done) {
+          var names = ["second #.txt", "first?.txt", "100%.txt"]
+          var uris = Util.saveFilesResultUris("/tmp/destination", names)
+          var expected = [
+            "file:///tmp/destination/second%20%23.txt",
+            "file:///tmp/destination/first%3F.txt",
+            "file:///tmp/destination/100%25.txt"
+          ]
+          done(JSON.stringify(uris) === JSON.stringify(expected), JSON.stringify(uris))
+        })
+
+        sc.add("Picker session never writes normal window geometry", function (done) {
+          var component = Qt.createComponent("../../../app/HostAdapter.qml")
+          if (component.status !== Component.Ready) { done(false, component.errorString()); return }
+          var fakeWindow = Qt.createQmlObject(
+            'import QtQuick; QtObject { property int width: 900; property int height: 600 }', sc)
+          var adapter = component.createObject(sc, { window: fakeWindow })
+          if (!adapter) { fakeWindow.destroy(); done(false, "could not create HostAdapter"); return }
+          var wrote = false
+          function onSaved(path, ok) { if (path === adapter._file) wrote = true }
+          Backend.JsonStore.saved.connect(onSaved)
+          PickerState.sessionActive = true
+          adapter._write()
+          PickerState.sessionActive = false
+          Backend.JsonStore.saved.disconnect(onSaved)
+          adapter.destroy()
+          fakeWindow.destroy()
+          done(!wrote, wrote ? "picker geometry reached JsonStore" : "picker geometry suppressed")
+        })
+
         sc.add("Conflict detection sees a broken symlink (BUG-01)", function (done) {
           var link = sc.opsDir + "/bug01-broken-" + Date.now()
           sc._sh(["ln", "-s", "/omafiles-no-such-target-xyz", link], function (r) {

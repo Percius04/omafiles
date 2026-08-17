@@ -1,9 +1,16 @@
 #include <QCoreApplication>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusMessage>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPageSize>
@@ -13,9 +20,14 @@
 #include <QQmlContext>
 #include <QObject>
 #include <QQuickStyle>
+#include <QRegularExpression>
+#include <QStringList>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 #include <cstdio>
+#include <utility>
 #include <unistd.h>
 
 // Selfcheck reporter: DETERMINISTIC output to stdout (does not depend on the
@@ -95,6 +107,49 @@ QString instanceSocketName() {
   return QStringLiteral("omafiles-instance-%1").arg(static_cast<uint>(getuid()));
 }
 
+bool validPickerBasename(const QString &name) {
+  return !name.isEmpty() && name != QLatin1String(".") &&
+         name != QLatin1String("..") && !name.contains(QLatin1Char('/')) &&
+         !name.contains(QChar::Null);
+}
+
+// Picker payloads use a strict, non-secret JSON schema. This classifier is
+// shared by command routing and the test seam so picker processes can never
+// contact or claim the normal single-instance socket.
+bool validatedPickerPayload(const QString &payload, QJsonObject *result = nullptr) {
+  QJsonParseError error;
+  const QJsonDocument document = QJsonDocument::fromJson(payload.toUtf8(), &error);
+  if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
+  const QJsonObject object = document.object();
+  const QString mode = object.value(QStringLiteral("mode")).toString();
+  const QString folder = object.value(QStringLiteral("folder")).toString();
+  const QString requestId = object.value(QStringLiteral("requestId")).toString();
+  const QJsonValue filesValue = object.value(QStringLiteral("files"));
+  static const QRegularExpression objectPathPattern(
+      QStringLiteral("^/(?:[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*)?$"));
+  static const QStringList pickerKeys{
+      QStringLiteral("files"), QStringLiteral("folder"), QStringLiteral("kind"),
+      QStringLiteral("mode"), QStringLiteral("multiple"), QStringLiteral("requestId"),
+      QStringLiteral("suggestedName")};
+  if (object.keys() != pickerKeys ||
+      object.value(QStringLiteral("kind")).toString() != QLatin1String("picker") ||
+      !objectPathPattern.match(requestId).hasMatch() || !folder.startsWith(QLatin1Char('/')) ||
+      folder.contains(QChar::Null) ||
+      !object.value(QStringLiteral("multiple")).isBool() ||
+      !object.value(QStringLiteral("suggestedName")).isString() || !filesValue.isArray() ||
+      (mode != QLatin1String("open-file") && mode != QLatin1String("open-dir") &&
+       mode != QLatin1String("save-file") && mode != QLatin1String("save-files"))) {
+    return false;
+  }
+  const QJsonArray files = filesValue.toArray();
+  if (mode == QLatin1String("save-files") && files.isEmpty()) return false;
+  for (const QJsonValue &file : files) {
+    if (!file.isString() || !validPickerBasename(file.toString())) return false;
+  }
+  if (result) *result = object;
+  return true;
+}
+
 // Normalizes the command-line argument to the "payload" that
 // core/OmafilesContent.open() understands: an absolute folder path, optionally
 // followed by "\n" and names to select (separated by \x1f). Rules:
@@ -109,6 +164,8 @@ QString instanceSocketName() {
 QString normalizePayload(const QString &arg) {
   if (arg.isEmpty()) return QString();
   if (arg.startsWith(QLatin1Char('/'))) return arg;
+  if (arg.startsWith(QLatin1Char('{')))
+    return validatedPickerPayload(arg) ? arg : QString();
 
   QString path;
   if (arg.startsWith(QLatin1String("file://"))) {
@@ -130,6 +187,56 @@ QString normalizePayload(const QString &arg) {
 // received(payload) to QML (Main.qml connects it to content.open + raise). A
 // SECOND invocation (e.g. opening a folder from another app) connects to the
 // socket, sends its payload and exits, instead of opening another window.
+class PickerResponder : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool ready READ ready CONSTANT)
+ public:
+  PickerResponder(QString requestId, QByteArray token, QObject *parent = nullptr)
+      : QObject(parent), m_requestId(std::move(requestId)), m_token(std::move(token)) {}
+
+  bool ready() const { return m_registered && !m_completed; }
+
+  bool registerPicker() {
+    if (m_requestId.isEmpty() || m_token.isEmpty()) return false;
+    QDBusInterface portal(
+        QStringLiteral("org.freedesktop.impl.portal.desktop.omafiles"),
+        QStringLiteral("/org/freedesktop/portal/desktop"),
+        QStringLiteral("org.freedesktop.impl.portal.desktop.omafiles"),
+        QDBusConnection::sessionBus());
+    const QDBusMessage reply = portal.call(
+        QDBus::Block, QStringLiteral("RegisterPicker"), m_requestId,
+        QString::fromLatin1(m_token));
+    m_token.fill('\0');
+    m_token.clear();
+    m_registered = reply.type() == QDBusMessage::ReplyMessage;
+    return m_registered;
+  }
+
+  Q_INVOKABLE bool submit(int responseCode, const QVariantList &results) {
+    if (!ready() || responseCode < 0) return false;
+    const QString resultsJson = QString::fromUtf8(
+        QJsonDocument(QJsonArray::fromVariantList(results)).toJson(QJsonDocument::Compact));
+    QDBusInterface portal(
+        QStringLiteral("org.freedesktop.impl.portal.desktop.omafiles"),
+        QStringLiteral("/org/freedesktop/portal/desktop"),
+        QStringLiteral("org.freedesktop.impl.portal.desktop.omafiles"),
+        QDBusConnection::sessionBus());
+    const QDBusMessage reply = portal.call(
+        QDBus::Block, QStringLiteral("SubmitResponse"), m_requestId,
+        static_cast<quint32>(responseCode), resultsJson);
+    if (reply.type() != QDBusMessage::ReplyMessage) return false;
+    m_completed = true;
+    m_requestId.clear();
+    return true;
+  }
+
+ private:
+  QString m_requestId;
+  QByteArray m_token;
+  bool m_registered = false;
+  bool m_completed = false;
+};
+
 class SingleInstance : public QObject {
   Q_OBJECT
  public:
@@ -378,6 +485,17 @@ int runSelfCheck(int argc, char *argv[]) {
   return rc; // tmp is destroyed (and cleaned) on returning from main.
 }
 
+int runInstanceServerTest(int argc, char *argv[], const QString &readyPath) {
+  QCoreApplication app(argc, argv);
+  SingleInstance instance;
+  if (!instance.listen()) return 2;
+  QFile ready(readyPath);
+  if (!ready.open(QIODevice::WriteOnly) || ready.write("ready\n") < 0) return 2;
+  ready.close();
+  QTimer::singleShot(10000, &app, &QCoreApplication::quit);
+  return app.exec();
+}
+
 int runNormal(int argc, char *argv[]) {
   QGuiApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("omafiles"));
@@ -399,20 +517,41 @@ int runNormal(int argc, char *argv[]) {
     break;
   }
 
-  // Check if this is a file-chooser picker payload
-  const bool isPicker = payload.contains(QLatin1String("picker:"));
+  QJsonObject pickerObject;
+  const bool isPicker = validatedPickerPayload(payload, &pickerObject);
 
-  if (isPicker) {
-    app.setDesktopFileName(QStringLiteral("omafiles-picker"));
-  } else {
-    app.setDesktopFileName(QStringLiteral("omafiles"));
+  // Executable integration seam: use the production classifier and socket
+  // routing without loading QML. It is enabled only by the test environment.
+  if (qEnvironmentVariableIsSet("OMAFILES_TEST_CLASSIFY_ONLY")) {
+    if (isPicker) {
+      printf("picker-independent\n");
+      return 0;
+    }
+    if (SingleInstance::deliverToRunning(payload)) {
+      printf("normal-delivered\n");
+      return 0;
+    }
+    return 2;
   }
 
-  // Single instance: if there is already an Omafiles open, deliver it the payload
-  // (it will navigate/select and bring itself to the front) and exit without
-  // opening another window. If not, this invocation becomes the server instance.
-  // Picker instances run independently as separate transient windows.
+  app.setDesktopFileName(isPicker ? QStringLiteral("omafiles-picker")
+                                  : QStringLiteral("omafiles"));
+
+  // A picker neither delivers to nor listens on the normal socket.
   if (!isPicker && SingleInstance::deliverToRunning(payload)) return 0;
+
+  QByteArray pickerToken;
+  if (isPicker) {
+    QFile input;
+    if (!input.open(stdin, QIODevice::ReadOnly)) return 2;
+    pickerToken = input.readLine().trimmed();
+    if (pickerToken.isEmpty()) return 2;
+  }
+
+  PickerResponder pickerResponder(
+      isPicker ? pickerObject.value(QStringLiteral("requestId")).toString() : QString(),
+      std::move(pickerToken));
+  if (isPicker && !pickerResponder.registerPicker()) return 2;
 
   // qs.Ui uses QtQuick.Controls (Button/TextField) -- Basic is the style that
   // does not depend on any extra native backend, the safest.
@@ -427,10 +566,14 @@ int runNormal(int argc, char *argv[]) {
   addImportPaths(engine, resourceDir);
 
   SingleInstance instance;
-  instance.listen();  // if it fails (name taken by a race) it simply does not
-                      // receive summons; the window opens anyway.
+  if (!isPicker) {
+    instance.listen();  // if a normal-instance race took the name, this window
+                        // simply does not receive later summons.
+  }
   engine.rootContext()->setContextProperty("SingleInstance", &instance);
+  engine.rootContext()->setContextProperty("PickerResponder", &pickerResponder);
   engine.rootContext()->setContextProperty("omafilesInitialPayload", payload);
+  engine.rootContext()->setContextProperty("omafilesInitialIsPicker", isPicker);
 
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
@@ -454,9 +597,10 @@ int main(int argc, char *argv[]) {
   // creating the QML engine.
   qputenv("QML_XHR_ALLOW_FILE_READ", "1");
   for (int i = 1; i < argc; ++i) {
-    if (QString::fromLocal8Bit(argv[i]) == QLatin1String("--selfcheck")) {
-      return runSelfCheck(argc, argv);
-    }
+    const QString argument = QString::fromLocal8Bit(argv[i]);
+    if (argument == QLatin1String("--selfcheck")) return runSelfCheck(argc, argv);
+    if (argument == QLatin1String("--test-instance-server") && i + 1 < argc)
+      return runInstanceServerTest(argc, argv, QString::fromLocal8Bit(argv[i + 1]));
   }
   return runNormal(argc, argv);
 }

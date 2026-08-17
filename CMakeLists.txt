@@ -112,6 +112,7 @@ target_link_libraries(omafiles-standalone PRIVATE
   Qt6::Qml
   Qt6::Quick
   Qt6::QuickControls2
+  Qt6::DBus
   Qt6::Network
 )
 
@@ -186,6 +187,42 @@ install(DIRECTORY
 install(DIRECTORY scripts DESTINATION "${OMAFILES_RES_DEST}"
         USE_SOURCE_PERMISSIONS)
 
+# Static desktop integration uses the configured install layout. Installing the
+# package only places these files; user MIME and portal defaults remain opt-in.
+set(OMAFILES_GENERATED_INTEGRATIONS "${CMAKE_BINARY_DIR}/generated/integrations")
+file(MAKE_DIRECTORY "${OMAFILES_GENERATED_INTEGRATIONS}")
+set(OMAFILES_INTEGRATION_FILES
+  io.github.percius04.omafiles.desktop
+  io.github.percius04.omafiles.service
+  org.freedesktop.FileManager1.service
+  org.freedesktop.impl.portal.desktop.omafiles.service)
+foreach(integration_file IN LISTS OMAFILES_INTEGRATION_FILES)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/integrations/${integration_file}.in"
+    "${OMAFILES_GENERATED_INTEGRATIONS}/${integration_file}"
+    @ONLY)
+endforeach()
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/integrations/omafiles.portal"
+  "${OMAFILES_GENERATED_INTEGRATIONS}/omafiles.portal"
+  COPYONLY)
+
+install(FILES "${OMAFILES_GENERATED_INTEGRATIONS}/io.github.percius04.omafiles.desktop"
+  DESTINATION "${OMAFILES_DATA_INSTALL_DIR}/applications")
+# FileManager1 is a shared well-known service name. Nautilus owns the same
+# system descriptor path, so keep OmaFiles' configured copy in resources and
+# place a user descriptor only during explicit --enable.
+install(FILES
+  "${OMAFILES_GENERATED_INTEGRATIONS}/io.github.percius04.omafiles.service"
+  "${OMAFILES_GENERATED_INTEGRATIONS}/org.freedesktop.impl.portal.desktop.omafiles.service"
+  DESTINATION "${OMAFILES_DATA_INSTALL_DIR}/dbus-1/services")
+install(FILES "${OMAFILES_GENERATED_INTEGRATIONS}/omafiles.portal"
+  DESTINATION "${OMAFILES_DATA_INSTALL_DIR}/xdg-desktop-portal/portals")
+# Keep configured copies beside the resource script so a user install can
+# repair a deleted descriptor. A /usr install is only checked, never shadowed.
+install(DIRECTORY "${OMAFILES_GENERATED_INTEGRATIONS}/"
+  DESTINATION "${OMAFILES_RES_DEST}/integrations")
+
 # assets/ (source icon and variants).
 install(DIRECTORY assets DESTINATION "${OMAFILES_RES_DEST}")
 
@@ -256,6 +293,28 @@ if(BUILD_TESTING)
     "${OMAFILES_SELFCHECK_HOME}/.local/share"
     "${OMAFILES_SELFCHECK_HOME}/.local/state"
     "${OMAFILES_SELFCHECK_HOME}/runtime")
+
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME portal.filechooser-unit
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_filechooser.py" -v)
+  add_test(NAME integration.user-default-roundtrip
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-integrations.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/install-integrations.sh")
+  add_test(NAME integration.open-path
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-open-path.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/open-path.sh")
+  add_test(NAME integration.picker-classification
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-picker-classification.sh"
+            $<TARGET_FILE:omafiles-standalone>)
+
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/ValidateInstalledIntegrations.cmake.in"
+    "${CMAKE_BINARY_DIR}/ValidateInstalledIntegrations.cmake"
+    @ONLY)
+  add_test(NAME integration.installed-layout
+    COMMAND "${CMAKE_COMMAND}" -P
+            "${CMAKE_BINARY_DIR}/ValidateInstalledIntegrations.cmake")
 
   add_test(NAME selfcheck.source-tree
     COMMAND $<TARGET_FILE:omafiles-standalone> --selfcheck)

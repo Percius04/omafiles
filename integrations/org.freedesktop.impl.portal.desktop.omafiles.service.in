@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.omafiles
+Exec=@OMAFILES_RES_DEST@/scripts/dbus-filechooser.py

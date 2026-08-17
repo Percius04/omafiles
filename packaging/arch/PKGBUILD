@@ -9,7 +9,21 @@ license=('MIT')
 # qt6-webengine provides Qt6::Pdf (libQt6Pdf.so) on Arch -- CMakeLists.txt's
 # `find_package(Qt6 REQUIRED COMPONENTS ... Pdf ...)` fails to configure
 # without it (P0-5, forensic audit 2026-08-16).
-depends=('qt6-base' 'qt6-declarative' 'qt6-5compat' 'qt6-webengine' 'glib2')
+# Runtime command owners verified with local pacman metadata. Python/GObject and
+# xdg-desktop-portal are required by the shipped FileChooser D-Bus backend;
+# udisks2/util-linux and gtk3 back app commands used by core workflows.
+# qt6-svg renders PathSvg controls; wl-clipboard handles external clipboard
+# import; zip/unzip/tar are direct, non-fallback archive commands.
+depends=('qt6-base' 'qt6-declarative' 'qt6-5compat' 'qt6-webengine' 'qt6-svg'
+         'glib2' 'python-gobject' 'xdg-desktop-portal' 'xdg-utils' 'udisks2'
+         'util-linux' 'gtk3' 'wl-clipboard' 'zip' 'unzip' 'tar')
+optdepends=('desktop-file-utils: refresh the desktop entry cache after opt-in integration'
+            'libnotify: desktop notifications'
+            'ffmpegthumbnailer: video thumbnails'
+            'gvfs: remote filesystem mounts'
+            '7zip: browse 7z archives'
+            'unrar: browse RAR archives'
+            'plocate: indexed global search')
 makedepends=('cmake' 'ninja' 'qt6-tools')
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Percius04/omafiles/archive/v${pkgver}.tar.gz")
 sha256sums=('307f60a97a9bfe2360ddb1a5f008ea0dee9b12d2c67b02e4126d2d851e6431e2') # verified 2026-08-17 against the corrected URL (the old one pointed at github.com/omafiles/omafiles, which 404s)

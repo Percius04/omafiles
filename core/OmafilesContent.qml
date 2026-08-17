@@ -6,6 +6,7 @@ import "../dialogs"
 import "../panels"
 import "../logic"
 import "../shared"
+import "../shared/Utils.js" as Utils
 import "../state"
 
 // OmafilesContent -- composition root of the Omafiles window.
@@ -39,27 +40,49 @@ Item {
   function open(payload) {
     root.opened = true
 
-    var nlIdx = payload ? payload.indexOf("\n") : -1
-    var folderPart = nlIdx >= 0 ? payload.substring(0, nlIdx) : payload
-    var selectPart = nlIdx >= 0 ? payload.substring(nlIdx + 1) : ""
+    var pickerPayload = null
+    if (payload && payload.charAt(0) === "{") {
+      try {
+        var decoded = JSON.parse(payload)
+        if (decoded.kind === "picker") pickerPayload = decoded
+      } catch (e) {
+        pickerPayload = null
+      }
+    }
+
+    var nlIdx = !pickerPayload && payload ? payload.indexOf("\n") : -1
+    var folderPart = pickerPayload ? String(pickerPayload.folder || "")
+      : (nlIdx >= 0 ? payload.substring(0, nlIdx) : payload)
+    var selectPart = !pickerPayload && nlIdx >= 0 ? payload.substring(nlIdx + 1) : ""
     var selectNames = selectPart ? selectPart.split("\x1f") : []
 
-    if (selectPart.indexOf("picker:") === 0) {
-      var parts = selectPart.split(":")
-      if (parts.length >= 4) {
-        PickerState.active = true
-        PickerState.requestId = parts[1]
-        PickerState.mode = parts[2]
-        PickerState.multiple = (parts[3] === "true")
-        PickerState.suggestedName = parts.slice(4).join(":")
+    if (pickerPayload) {
+      var modes = ["open-file", "open-dir", "save-file", "save-files"]
+      var files = Array.isArray(pickerPayload.files) ? pickerPayload.files : []
+      var validFiles = []
+      for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+        if (Utils.validBasename(files[fileIndex])) validFiles.push(String(files[fileIndex]))
       }
-      selectNames = []
+      var schema = ["files", "folder", "kind", "mode", "multiple", "requestId", "suggestedName"]
+      PickerState.active = Object.keys(pickerPayload).sort().join(",") === schema.join(",")
+        && modes.indexOf(pickerPayload.mode) >= 0
+        && String(pickerPayload.requestId || "").length > 0
+        && typeof pickerPayload.multiple === "boolean"
+        && PickerResponder.ready
+        && (pickerPayload.mode !== "save-files"
+            || validFiles.length === files.length && files.length > 0)
+      PickerState.sessionActive = PickerState.active
+      PickerState.mode = PickerState.active ? String(pickerPayload.mode) : "open-file"
+      PickerState.multiple = PickerState.active && pickerPayload.multiple === true
+      PickerState.suggestedName = PickerState.active ? String(pickerPayload.suggestedName || "") : ""
+      PickerState.saveFiles = PickerState.active ? validFiles : []
     } else {
       PickerState.active = false
-      PickerState.requestId = ""
+      PickerState.sessionActive = false
       PickerState.mode = "open-file"
       PickerState.multiple = false
       PickerState.suggestedName = ""
+      PickerState.saveFiles = []
     }
 
     var targetPath = (folderPart && folderPart.charAt(0) === "/") ? folderPart : ""
@@ -93,46 +116,17 @@ Item {
   }
 
   function cancelPicker() {
-    if (PickerState.active && PickerState.requestId) {
-      var reqId = PickerState.requestId
-      PickerState.active = false
-      PickerState.requestId = ""
-      Backend.Detached.run([
-        "dbus-send",
-        "--session",
-        "--type=method_call",
-        "--dest=org.freedesktop.impl.portal.desktop.omafiles",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
-        "string:" + reqId,
-        "uint32:1",
-        "string:[]"
-      ])
-    }
-    root.close()
+    if (PickerState.active && !PickerResponder.submit(1, [])) return false
+    PickerState.active = false
+    if (!root.close()) return false
     root.requestClose()
+    return true
   }
 
   function close() {
-    if (PickerState.active && PickerState.requestId) {
-      var reqId = PickerState.requestId
-      PickerState.active = false
-      PickerState.requestId = ""
-      Backend.Detached.run([
-        "dbus-send",
-        "--session",
-        "--type=method_call",
-        "--dest=org.freedesktop.impl.portal.desktop.omafiles",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
-        "string:" + reqId,
-        "uint32:1",
-        "string:[]"
-      ])
-    }
-    if (!PickerState.active) {
-      registry.persistence.saveSession()
-    }
+    if (PickerState.active && !PickerResponder.submit(1, [])) return false
+    PickerState.active = false
+    if (!PickerState.sessionActive) registry.persistence.saveSession()
     root.opened = false
     registry.navController.stopDirWatch()
     EditModeState.renamingIndex = -1
@@ -160,7 +154,8 @@ Item {
     ConflictState.pendingBulkRename = null
     DialogsState.connectServerOpen = false
     PickerState.active = false
-    PickerState.requestId = ""
+    PickerState.saveFiles = []
+    return true
   }
 
   signal closeRequested()

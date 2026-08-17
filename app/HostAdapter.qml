@@ -58,7 +58,7 @@ QtObject {
   // Persists the current size (debounced, so as not to write on every pixel of
   // a resize drag).
   function remember() {
-    if (PickerState.active) return
+    if (PickerState.sessionActive) return
     _debounce.restart()
   }
 
@@ -68,7 +68,9 @@ QtObject {
   function center() {}
 
   function _write() {
-    if (!adapter.window) return
+    // Recheck at delivery time: picker sizing can schedule the debounce before
+    // OmafilesContent marks the short-lived picker session active.
+    if (PickerState.sessionActive || !adapter.window) return
     Backend.JsonStore.write(adapter._file, {
       width: Math.round(adapter.window.width),
       height: Math.round(adapter.window.height)

@@ -34,8 +34,20 @@ if [[ -n "$arg" ]]; then
   [[ -d "$path" ]] || path=""
 fi
 
-# Launches the standalone Qt6 binary. If Omafiles is already open, its
-# single instance receives the path and navigates to it in a new tab
-# bringing the window to the front; if not, it opens it. Empty path = normal
-# startup (restores the previous session).
-exec "$HOME/.local/bin/omafiles" "$path"
+# Resolve an explicit package/test override first, then PATH, then the standard
+# per-user fallback. Never assume a system package lives under ~/.local.
+omafiles_bin="${OMAFILES_BIN:-}"
+if [[ -z "$omafiles_bin" ]]; then
+  omafiles_bin="$(command -v omafiles 2>/dev/null || true)"
+fi
+if [[ -z "$omafiles_bin" && -x "$HOME/.local/bin/omafiles" ]]; then
+  omafiles_bin="$HOME/.local/bin/omafiles"
+fi
+if [[ -z "$omafiles_bin" || ! -x "$omafiles_bin" ]]; then
+  printf 'OmaFiles: executable not found (set OMAFILES_BIN or install omafiles in PATH).\n' >&2
+  exit 127
+fi
+
+# If Omafiles is already open, its single instance receives the path and
+# navigates to it. Empty path restores the previous session.
+exec "$omafiles_bin" "$path"

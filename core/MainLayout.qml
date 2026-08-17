@@ -1,7 +1,6 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
-import Omafiles.Backend as Backend
 import "../panels"
 import "../shared"
 import "../state"
@@ -249,19 +248,7 @@ Item {
               anchors.left: parent.left
               anchors.right: parent.right
               visible: PickerState.active
-              onResponseSubmitted: function(requestId, responseCode, results) {
-                var resultsJson = JSON.stringify(results)
-                Backend.Detached.run([
-                  "dbus-send",
-                  "--session",
-                  "--type=method_call",
-                  "--dest=org.freedesktop.impl.portal.desktop.omafiles",
-                  "/org/freedesktop/portal/desktop",
-                  "org.freedesktop.impl.portal.desktop.omafiles.SubmitResponse",
-                  "string:" + requestId,
-                  "uint32:" + responseCode,
-                  "string:" + resultsJson
-                ])
+              onResponseSubmitted: {
                 root.close()
                 root.requestClose()
               }

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=OmaFiles
+GenericName=File manager
+Comment=Qt 6 file manager
+Exec=@OMAFILES_RES_DEST@/scripts/open-path.sh %u
+Icon=omafiles
+Terminal=false
+Categories=System;FileManager;
+MimeType=inode/directory;
+DBusActivatable=true
+StartupWMClass=omafiles
