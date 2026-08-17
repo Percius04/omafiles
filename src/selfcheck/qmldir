@@ -1,0 +1,3 @@
+module omafiles.selfcheck
+SelfCheckRunner 1.0 SelfCheckRunner.qml
+SelfCheckRegistry 1.0 SelfCheckRegistry.qml

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(omafiles VERSION 0.9.0 LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -205,13 +207,33 @@ endforeach()
 # ---------------------------------------------------------------------------
 # Validation harness (Phase 12)
 # ---------------------------------------------------------------------------
-# `cmake --build build --target selfcheck` compiles the standalone and runs its
-# --selfcheck mode (headless, without Quickshell, auto-cleans its temporaries).
-# It exits 0 if everything passes, 1 if something fails -> usable as a CI step. See
-# app/SelfCheck.qml.
+if(BUILD_TESTING)
+  # Keep selfcheck state and trash fixtures away from the live user profile.
+  set(OMAFILES_SELFCHECK_HOME "${CMAKE_BINARY_DIR}/selfcheck-home")
+  file(MAKE_DIRECTORY
+    "${OMAFILES_SELFCHECK_HOME}/.cache"
+    "${OMAFILES_SELFCHECK_HOME}/.config"
+    "${OMAFILES_SELFCHECK_HOME}/.local/share"
+    "${OMAFILES_SELFCHECK_HOME}/.local/state"
+    "${OMAFILES_SELFCHECK_HOME}/runtime")
+
+  add_test(NAME selfcheck.source-tree
+    COMMAND $<TARGET_FILE:omafiles-standalone> --selfcheck)
+  set_tests_properties(selfcheck.source-tree PROPERTIES ENVIRONMENT
+    "HOME=${OMAFILES_SELFCHECK_HOME};XDG_CACHE_HOME=${OMAFILES_SELFCHECK_HOME}/.cache;XDG_CONFIG_HOME=${OMAFILES_SELFCHECK_HOME}/.config;XDG_DATA_HOME=${OMAFILES_SELFCHECK_HOME}/.local/share;XDG_STATE_HOME=${OMAFILES_SELFCHECK_HOME}/.local/state;XDG_RUNTIME_DIR=${OMAFILES_SELFCHECK_HOME}/runtime;QT_QPA_PLATFORM=offscreen")
+
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/RunInstalledSelfCheck.cmake.in"
+    "${CMAKE_BINARY_DIR}/RunInstalledSelfCheck.cmake"
+    @ONLY)
+  add_test(NAME selfcheck.installed-tree
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_BINARY_DIR}/RunInstalledSelfCheck.cmake")
+endif()
+
+# Convenience gate: build the binary, then use the same CTest definitions as CI.
 add_custom_target(selfcheck
-  COMMAND omafiles-standalone --selfcheck
+  COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
+          --output-on-failure -R "^selfcheck\\."
   DEPENDS omafiles-standalone
-  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   USES_TERMINAL
-  COMMENT "Running omafiles --selfcheck")
+  COMMENT "Running source-tree and installed-tree selfchecks through CTest")

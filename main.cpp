@@ -308,8 +308,19 @@ int runSelfCheck(int argc, char *argv[]) {
 
   // Phase 29: same resource resolution as normal mode, so the
   // selfcheck works both from the development tree and from the
-  // installation (without the repo).
-  const QString resourceDir = resolveResourceDir();
+  // installation (without the repo). The test-only override lets the installed-
+  // tree CTest prove that it does not fall back to the source checkout.
+  QString resourceDir = resolveResourceDir();
+  const QByteArray selfCheckResource = qgetenv("OMAFILES_SELFCHECK_RESOURCE_DIR");
+  if (!selfCheckResource.isEmpty()) {
+    const QString requested = QString::fromLocal8Bit(selfCheckResource);
+    if (!QDir::isAbsolutePath(requested) ||
+        !QFileInfo::exists(requested + "/app/SelfCheck.qml")) {
+      fprintf(stderr, "[selfcheck] invalid installed resource tree\n");
+      return 2;
+    }
+    resourceDir = requested;
+  }
   qputenv("OMAFILES_RESOURCE_DIR", resourceDir.toLocal8Bit());
 
   // Under $HOME/.cache (not /tmp): this way the fixtures live on the SAME mount
@@ -325,6 +336,17 @@ int runSelfCheck(int argc, char *argv[]) {
 
   QQmlApplicationEngine engine;
   addImportPaths(engine, resourceDir);
+  const QByteArray selfCheckImport = qgetenv("OMAFILES_SELFCHECK_QML_IMPORT_DIR");
+  if (!selfCheckImport.isEmpty()) {
+    const QString requested = QString::fromLocal8Bit(selfCheckImport);
+    if (!QDir::isAbsolutePath(requested) ||
+        !QFileInfo::exists(requested + "/Omafiles/Backend/qmldir")) {
+      fprintf(stderr, "[selfcheck] invalid installed QML import tree\n");
+      return 2;
+    }
+    // addImportPath prepends, so the staged installed module wins over build/qml.
+    engine.addImportPath(requested);
+  }
   SelfCheckReporter reporter;
   engine.rootContext()->setContextProperty("selfCheckTmpDir", tmp.path());
   engine.rootContext()->setContextProperty("SelfCheckOut", &reporter);

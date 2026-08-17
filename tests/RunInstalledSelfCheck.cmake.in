@@ -1,0 +1,58 @@
+# Install into an isolated DESTDIR, then force selfcheck to use only that tree.
+set(stage "@CMAKE_BINARY_DIR@/selfcheck-install-root")
+set(home "${stage}/test-home")
+set(installed_binary "${stage}@OMAFILES_BIN_INSTALL_DIR@/omafiles")
+set(installed_resources "${stage}@OMAFILES_RES_DEST@")
+set(installed_imports "${stage}@OMAFILES_QML_INSTALL_DIR@")
+
+file(REMOVE_RECURSE "${stage}")
+file(MAKE_DIRECTORY
+  "${home}/.cache"
+  "${home}/.config"
+  "${home}/.local/share"
+  "${home}/.local/state"
+  "${home}/runtime")
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" -E env "DESTDIR=${stage}"
+          "@CMAKE_COMMAND@" --install "@CMAKE_BINARY_DIR@"
+  RESULT_VARIABLE install_result
+  OUTPUT_VARIABLE install_output
+  ERROR_VARIABLE install_error)
+if(NOT install_result EQUAL 0)
+  message(FATAL_ERROR
+    "Staged install failed (${install_result})\n${install_output}\n${install_error}")
+endif()
+
+foreach(required_path
+    "${installed_binary}"
+    "${installed_resources}/app/SelfCheck.qml"
+    "${installed_resources}/src/selfcheck/SelfCheckRunner.qml"
+    "${installed_imports}/Omafiles/Backend/qmldir")
+  if(NOT EXISTS "${required_path}")
+    message(FATAL_ERROR "Staged install omitted required selfcheck path: ${required_path}")
+  endif()
+endforeach()
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" -E env
+    "HOME=${home}"
+    "XDG_CACHE_HOME=${home}/.cache"
+    "XDG_CONFIG_HOME=${home}/.config"
+    "XDG_DATA_HOME=${home}/.local/share"
+    "XDG_STATE_HOME=${home}/.local/state"
+    "XDG_RUNTIME_DIR=${home}/runtime"
+    "QT_QPA_PLATFORM=offscreen"
+    "OMAFILES_SELFCHECK_RESOURCE_DIR=${installed_resources}"
+    "OMAFILES_SELFCHECK_QML_IMPORT_DIR=${installed_imports}"
+    "${installed_binary}" --selfcheck
+  RESULT_VARIABLE selfcheck_result
+  OUTPUT_VARIABLE selfcheck_output
+  ERROR_VARIABLE selfcheck_error)
+message("${selfcheck_output}")
+if(selfcheck_error)
+  message("${selfcheck_error}")
+endif()
+if(NOT selfcheck_result EQUAL 0)
+  message(FATAL_ERROR "Installed-tree selfcheck failed (${selfcheck_result})")
+endif()
