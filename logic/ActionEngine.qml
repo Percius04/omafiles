@@ -18,8 +18,8 @@ Item {
   property Item root: null
   property Item navController: null
   property Item list: null
-  property var _nativeMkdirPending: ({})
-
+  property var _historyInFlight: null
+  property bool pendingDeletePermanent: false
 
   // Simple stack of reversible actions: rename, new folder/file,
   // delete (to trash), move (cut+paste/drag), bulk
@@ -33,42 +33,46 @@ Item {
     UndoState.redoStack = []
   }
 
+  function _finishHistory(success) {
+    var pending = _historyInFlight
+    if (!pending) return
+    _historyInFlight = null
+    if (!success) return
+    var entry = pending.entry
+    if (pending.direction === "undo") {
+      if (UndoState.undoStack.length === 0 || UndoState.undoStack[UndoState.undoStack.length - 1] !== entry) return
+      UndoState.undoStack = UndoState.undoStack.slice(0, -1)
+      if (entry.redo) UndoState.redoStack = UndoState.redoStack.concat([entry]).slice(-20)
+    } else {
+      if (UndoState.redoStack.length === 0 || UndoState.redoStack[UndoState.redoStack.length - 1] !== entry) return
+      UndoState.redoStack = UndoState.redoStack.slice(0, -1)
+      UndoState.undoStack = UndoState.undoStack.concat([entry]).slice(-20)
+    }
+  }
+
   function undoLast() {
-    if (UndoState.undoStack.length === 0) return
+    if (_historyInFlight || UndoState.undoStack.length === 0) return
     var entry = UndoState.undoStack[UndoState.undoStack.length - 1]
-    UndoState.undoStack = UndoState.undoStack.slice(0, -1)
-    // entry.undo() returns what runAction() returns: false if it was
-    // discarded because another action was in progress. Before, this said "Undone"
-    // no matter what, even when the undo didn't even get
-    // launched, AND the entry was lost from the stack anyway. Now, if it
-    // didn't get launched, it is returned to the stack so it can be retried.
+    _historyInFlight = { direction: "undo", entry: entry }
     var started = entry.undo()
     if (started === false) {
-      UndoState.undoStack = UndoState.undoStack.concat([entry])
+      _historyInFlight = null
       Backend.Notifier.notify("Couldn't undo \"" + entry.label + "\": still busy with another action")
       return
     }
-    // It only goes to the redo stack if it really has a way to be redone
-    // -- not every undoStack entry has a redoFn (see the
-    // comment next to pushUndo).
-    if (entry.redo) UndoState.redoStack = UndoState.redoStack.concat([entry]).slice(-20)
     Backend.Notifier.notify("Undoing: " + entry.label)
   }
 
   function redoLast() {
-    if (UndoState.redoStack.length === 0) return
+    if (_historyInFlight || UndoState.redoStack.length === 0) return
     var entry = UndoState.redoStack[UndoState.redoStack.length - 1]
-    UndoState.redoStack = UndoState.redoStack.slice(0, -1)
+    _historyInFlight = { direction: "redo", entry: entry }
     var started = entry.redo()
     if (started === false) {
-      UndoState.redoStack = UndoState.redoStack.concat([entry])
+      _historyInFlight = null
       Backend.Notifier.notify("Couldn't redo \"" + entry.label + "\": still busy with another action")
       return
     }
-    // Back to undoStack WITHOUT going through pushUndo() -- that would empty
-    // redoStack, which is exactly what we don't want in the middle of an
-    // undo/redo/undo cycle.
-    UndoState.undoStack = UndoState.undoStack.concat([entry]).slice(-20)
     Backend.Notifier.notify("Redoing: " + entry.label)
   }
 
@@ -123,6 +127,7 @@ Item {
     // partial destination to clean up here (their overwrite is atomic or handled
     // by their own command).
     actionProc.cancel()
+    _finishHistory(false)
     _resetActionState()
   }
 
@@ -148,23 +153,48 @@ Item {
     ActionState.actionProgressPct = _progTotal > 0 ? 0 : -1
   }
 
-  // Static declarative signal handler for all native file operations:
-  // eliminates per-batch-item dynamic connect()/disconnect() churn.
+  function _expectedNativeOp() {
+    if (_nativeKind === "restoreExact") return "restore"
+    return _nativeKind
+  }
+
+  function _expectedNativePath() {
+    if (_nativeKind === "emptyTrash") return ""
+    if (_batchIdx < 0 || _batchIdx >= _batchQueue.length) return ""
+    return _batchQueue[_batchIdx].src
+  }
+
+  function _matchesNativeSignal(op, path) {
+    return nativeBusy && op === _expectedNativeOp() && path === _expectedNativePath()
+  }
+
+  function _handleNativeWarning(op, path, message) {
+    if (!_matchesNativeSignal(op, path)) return
+    _batchWarnings.push({ item: _batchQueue[_batchIdx], message: message })
+    Backend.Notifier.notify(message || "Action completed with cleanup work remaining")
+  }
+
+  // One correlated signal handler owns every native operation, including mkdir.
   Connections {
     target: Backend.FileOperations
 
     function onProgress(op, path, done, total) {
-      if (!nativeBusy || _progTotal <= 0) return
+      if (!_matchesNativeSignal(op, path) || _progTotal <= 0) return
       _lastItemTotal = total
       ActionState.actionProgressPct = Math.min(100, (_progBase + done) * 100 / _progTotal)
     }
 
+    function onWarning(op, path, message) {
+      _handleNativeWarning(op, path, message)
+    }
+
     function onFinished(op, path) {
-      if (!nativeBusy) return
+      if (!_matchesNativeSignal(op, path)) return
       if (_nativeKind === "emptyTrash") {
-        _finishNative(true)
+        _finishNative(true, false)
         return
       }
+      _batchSucceeded.push(_batchQueue[_batchIdx])
       _progBase += _lastItemTotal
       _lastItemTotal = 0
       _batchIdx += 1
@@ -172,20 +202,26 @@ Item {
     }
 
     function onError(op, path, msg) {
-      if (!nativeBusy) return
-      if (msg && msg !== "cancelled")
+      if (!_matchesNativeSignal(op, path)) return
+      var cancelled = msg === "cancelled" || _cancelling
+      if (!cancelled) {
+        _batchFailed.push(_batchQueue[_batchIdx])
         Backend.Notifier.notify(msg || "Action failed")
-      _finishNative(false)
+      }
+      _finishNative(false, cancelled)
     }
   }
 
-  // ---------- Native copy/move/trash/restore/remove/emptyTrash ----------
+  // ---------- Native copy/move/trash/restore/remove/mkdir/emptyTrash ----------
   property bool nativeBusy: false
   property string _nativeKind: "copy"
   property var _batchQueue: []
   property int _batchIdx: 0
   property bool _batchOverwrite: false
   property var _batchOnDone: null
+  property var _batchSucceeded: []
+  property var _batchFailed: []
+  property var _batchWarnings: []
   property bool _cancelling: false
 
   function runNativeCopy(pairs, busyLabel, overwrite, onDone) {
@@ -208,13 +244,25 @@ Item {
     return _runNative("trash", _toPairs(paths), busyLabel, false, onDone)
   }
 
+  // Original-path restore is retained only for undoing a normal-folder trash.
   function runNativeRestore(origPaths, busyLabel, onDone) {
     return _runNative("restore", _toPairs(origPaths), busyLabel, false, onDone)
+  }
+
+  function runNativeRestorePayload(payloadPaths, busyLabel, onDone) {
+    return _runNative("restoreExact", _toPairs(payloadPaths), busyLabel, false, onDone)
+  }
+
+  function runNativeMkdir(path, busyLabel, onDone) {
+    return _runNative("mkdir", [{ src: path }], busyLabel, false, onDone)
   }
 
   function emptyTrash(onDone) {
     if (actionProc.busy || nativeBusy) {
       Backend.Notifier.notify("Still busy with the previous action — try again in a moment")
+      if (onDone) Qt.callLater(function () {
+        onDone({ success: false, succeeded: [], failed: [], unattempted: [], cancelled: false, warnings: [] })
+      })
       return false
     }
     nativeBusy = true
@@ -224,6 +272,9 @@ Item {
     _batchIdx = 0
     _batchOverwrite = false
     _batchOnDone = onDone || null
+    _batchSucceeded = []
+    _batchFailed = []
+    _batchWarnings = []
     ActionState.actionLabel = "Emptying trash…"
     ActionState.actionBusy = true
     ActionState.actionProgressPct = -1
@@ -234,6 +285,11 @@ Item {
   function _runNative(kind, pairs, busyLabel, overwrite, onDone) {
     if (actionProc.busy || nativeBusy) {
       Backend.Notifier.notify("Still busy with the previous action — try again in a moment")
+      if (onDone) {
+        var rejected = { success: false, succeeded: [], failed: [],
+                         unattempted: pairs.slice(), cancelled: false, warnings: [] }
+        Qt.callLater(function () { onDone(rejected) })
+      }
       return false
     }
     nativeBusy = true
@@ -243,6 +299,9 @@ Item {
     _batchIdx = 0
     _batchOverwrite = overwrite === true
     _batchOnDone = onDone || null
+    _batchSucceeded = []
+    _batchFailed = []
+    _batchWarnings = []
     ActionState.actionLabel = busyLabel || ""
     ActionState.actionBusy = !!busyLabel
     if (busyLabel && (kind === "copy" || kind === "move"))
@@ -253,27 +312,43 @@ Item {
   }
 
   function _batchNext() {
-    if (_cancelling) { _finishNative(false); return }
-    if (_batchIdx >= _batchQueue.length) { _finishNative(true); return }
+    // A terminal finished signal means the current item committed. If it was the
+    // final item, that success wins over a late cancel requested during cleanup.
+    if (_batchIdx >= _batchQueue.length) { _finishNative(true, false); return }
+    if (_cancelling) { _finishNative(false, true); return }
     var p = _batchQueue[_batchIdx]
     if (_nativeKind === "remove")
-      Backend.FileOperations.remove(p.src, _batchOverwrite)  // _batchOverwrite = ignoreMissing
+      Backend.FileOperations.remove(p.src, _batchOverwrite)
     else if (_nativeKind === "trash")
       Backend.FileOperations.trash(p.src)
     else if (_nativeKind === "restore")
       Backend.FileOperations.restoreByOrigPath(p.src)
+    else if (_nativeKind === "restoreExact")
+      Backend.FileOperations.restore(p.src)
     else if (_nativeKind === "move")
       Backend.FileOperations.move(p.src, p.dest, _batchOverwrite)
+    else if (_nativeKind === "mkdir")
+      Backend.FileOperations.mkdir(p.src)
     else
       Backend.FileOperations.copy(p.src, p.dest, _batchOverwrite)
   }
 
-  function _finishNative(success) {
+  function _finishNative(success, cancelled) {
+    var succeeded = _batchSucceeded.slice()
+    var failed = _batchFailed.slice()
+    var unattempted = []
+    if (!success && _nativeKind !== "emptyTrash")
+      unattempted = _batchQueue.slice(_batchIdx + (cancelled ? 0 : 1))
+    var result = { success: success && failed.length === 0,
+                   succeeded: succeeded, failed: failed,
+                   unattempted: unattempted, cancelled: cancelled === true,
+                   warnings: _batchWarnings.slice() }
     nativeBusy = false
     _resetActionState()
     var cb = _batchOnDone
     _batchOnDone = null
-    if (success && cb) Qt.callLater(cb)
+    _finishHistory(result.success)
+    if (cb) Qt.callLater(function () { cb(result) })
   }
 
   Backend.ProcessRunner {
@@ -282,11 +357,13 @@ Item {
       _resetActionState()
       var cb = ActionState._actionOnSuccess
       ActionState._actionOnSuccess = null
-      if (result.exitCode === 0) {
+      var success = result.exitCode === 0 && !result.cancelled
+      if (success) {
         if (cb) cb()
       } else if (!result.cancelled) {
-        Backend.Notifier.notify(result.stderr.trim() || "Couldn't restore from trash")
+        Backend.Notifier.notify(result.stderr.trim() || "Action failed")
       }
+      _finishHistory(success)
     }
   }
 
@@ -298,16 +375,20 @@ Item {
 
   function requestDelete() {
     if (ArchiveState.inArchive) return
-    var names = SelectionState.selectedEntries().map(function (e) { return e.name })
-    if (names.length === 0) return
-    root.pendingDeleteNames = names
+    var entries = SelectionState.selectedEntries()
+    if (entries.length === 0) return
+    root.pendingDeleteEntries = entries.slice()
+    root.pendingDeleteNames = entries.map(function (e) { return e.name })
+    pendingDeletePermanent = NavState.currentPath === Paths.trashDir
   }
 
   function confirmDelete() {
+    var entries = root.pendingDeleteEntries || []
     var names = root.pendingDeleteNames
+    root.pendingDeleteEntries = []
     root.pendingDeleteNames = []
-    if (names.length === 0) return
-    if (NavState.currentPath === Paths.trashDir) {
+    if (entries.length === 0 || names.length === 0) return
+    if (pendingDeletePermanent) {
       // NATIVE permanent delete: FileOperations.remove instead
       // of `rm -rf`/`rm -f`. No undo possible. TrashState.trashInfo (see
       // trash-info.sh) knows the real physical root of each item -- it can be the
@@ -316,11 +397,11 @@ Item {
       // <root>/files/<n> (recursive) and its <root>/info/<n>.trashinfo are deleted, both
       // with ignoreMissing (= `rm -f`: it being missing is not an error).
       var paths = []
-      names.forEach(function (n) {
-        var info = TrashState.trashInfo[n]
-        if (!info) return
-        paths.push(info.trashRoot + "/files/" + n)
-        paths.push(info.trashRoot + "/info/" + n + ".trashinfo")
+      entries.forEach(function (entry) {
+        var info = TrashState.trashInfo[entry.path]
+        if (!entry.path || !info) return
+        paths.push(entry.path)
+        paths.push(info.trashRoot + "/info/" + entry.name + ".trashinfo")
       })
       if (paths.length > 0) runNativeRemove(paths, "", true)
     } else {
@@ -329,25 +410,40 @@ Item {
       // absolute paths captured HERE (not inside the closures
       // below) -- NavState.currentPath may have changed by the time
       // the user presses undo, much later.
-      var origPaths = names.map(function (n) { return Utils.joinPath(NavState.currentPath, n) })
-      var label = names.length === 1 ? "delete \"" + names[0] + "\"" : "delete " + names.length + " items"
-      runNativeTrash(origPaths, "", function () {
-        // The undo is only registered if the send confirmed success. Undo =
-        // restore BY ORIGINAL PATH: it searches
-        // in ALL the active trashes for the .trashinfo whose original path
-        // matches, so it works the same wherever the delete came from -- and it works
-        // even if the user undoes much later without having ever opened the
-        // Trash.
-        pushUndo(label, function () {
-          return runNativeRestore(origPaths, "")
-        }, function () {
-          return runNativeTrash(origPaths, "")
+      var origPaths = entries.map(function (entry) { return Utils.entryPath(NavState.currentPath, entry) })
+      runNativeTrash(origPaths, "", function (result) {
+        // Each succeeded item owns one history entry. A later restore failure
+        // can therefore leave that item on the undo stack without partly
+        // changing a multi-item entry.
+        result.succeeded.forEach(function (completed) {
+          var path = completed.src
+          var name = path.substring(path.lastIndexOf("/") + 1)
+          pushUndo("delete \"" + name + "\"", function () {
+            return runNativeRestore([path], "")
+          }, function () {
+            return runNativeTrash([path], "")
+          })
         })
       })
     }
   }
 
   // --- ClipboardOps ---
+
+  function _pushMoveUndo(pairs, overwrite) {
+    if (!pairs) return
+    // Keep the coordinator batch for progress, but make history atomic per item.
+    pairs.forEach(function (p) {
+      var pair = { src: p.src, dest: p.dest }
+      var reversed = { src: p.dest, dest: p.src }
+      var label = "move \"" + p.dest.substring(p.dest.lastIndexOf("/") + 1) + "\""
+      pushUndo(label, function () {
+        return runNativeMove([reversed], "", false)
+      }, function () {
+        return runNativeMove([pair], "", overwrite)
+      })
+    })
+  }
 
   function copySelected() {
     if (ArchiveState.inArchive) return
@@ -437,22 +533,15 @@ Item {
         // NATIVE move: FileOperations.move. Same undo model
         // (move back / redo), now also native -- 0 shell.
         var overwrite = mode === "overwrite"
-        runNativeMove(pairs, busyLabel, overwrite, function () {
-          var label = pairs.length === 1
-            ? "move \"" + pairs[0].dest.substring(pairs[0].dest.lastIndexOf("/") + 1) + "\""
-            : "move " + pairs.length + " items"
-          var reversed = pairs.map(function (p) { return { src: p.dest, dest: p.src } })
-          pushUndo(label, function () {
-            return runNativeMove(reversed, "", false)      // undo: no-clobber
-          }, function () {
-            return runNativeMove(pairs, "", overwrite)     // redo: like the original
-          })
+        runNativeMove(pairs, busyLabel, overwrite, function (result) {
+          _pushMoveUndo(result.succeeded, overwrite)
+          var moved = {}
+          result.succeeded.forEach(function (p) { moved[p.src] = true })
+          ClipboardState.clipboardPaths = ClipboardState.clipboardPaths.filter(function (p) { return !moved[p] })
+          if (ClipboardState.clipboardPaths.length === 0) ClipboardState.clipboardMode = ""
+          syncClipboardToSystem()
         })
       }
-    }
-    if (ClipboardState.clipboardMode === "cut") {
-      ClipboardState.clipboardPaths = []
-      ClipboardState.clipboardMode = ""
     }
   }
 
@@ -478,29 +567,31 @@ Item {
     EditModeState.renamingIndex = index
   }
 
-  function runPendingRename(overwrite) {
+  function runPendingRename() {
     var r = ConflictState.pendingRename
     ConflictState.pendingRename = null
-    ConflictState.renameConflictOpen = false
     if (!r) return
     var oldName = r.oldPath.substring(r.oldPath.lastIndexOf("/") + 1)
-    // Same as in makeLinkFor: the undo is only registered if the "mv"
-    // actually happened. Before, it was always registered, even when runAction
-    // discarded it because another action was in progress (the rename had
-    // already been assumed done in the UI -- the input closed anyway).
-    var renameCmd = "mv " + (overwrite ? "-f" : "-n") + " -- " + Util.shellQuote(r.oldPath) + " " + Util.shellQuote(r.newPath)
-    runAction(renameCmd, undefined, function () {
+    var newName = r.newName || r.newPath.substring(r.newPath.lastIndexOf("/") + 1)
+    if (!Utils.validBasename(newName) || !Utils.basenamePathMatches(newName, r.newPath)) {
+      Backend.Notifier.notify("Invalid file name")
+      return
+    }
+    // Rename never displaces data. Repeat the conflict check immediately before
+    // launch so a destination created after editing is rejected too.
+    if (Backend.FileOperations.existingPaths([r.newPath]).length > 0) {
+      Backend.Notifier.notify("Rename cancelled: \"" + newName + "\" already exists")
+      return
+    }
+    var pair = { src: r.oldPath, dest: r.newPath }
+    runNativeMove([pair], "", false, function (result) {
+      if (result.succeeded.length !== 1) return
       pushUndo("rename to \"" + oldName + "\"", function () {
-        return runAction("mv -n -- " + Util.shellQuote(r.newPath) + " " + Util.shellQuote(r.oldPath))
+        return runNativeMove([{ src: r.newPath, dest: r.oldPath }], "", false)
       }, function () {
-        return runAction(renameCmd)
+        return runNativeMove([pair], "", false)
       })
     })
-  }
-
-  function cancelPendingRename() {
-    ConflictState.pendingRename = null
-    ConflictState.renameConflictOpen = false
   }
 
   function startNewFolder() {
@@ -529,6 +620,10 @@ Item {
     ConflictState.pendingNewFile = null
     ConflictState.newFileConflictOpen = false
     if (!pending) return
+    if (!Utils.validBasename(pending.name) || !Utils.basenamePathMatches(pending.name, pending.path)) {
+      Backend.Notifier.notify("Invalid file name")
+      return
+    }
     // overwrite: -rf first (it could be a whole folder, not just a
     // file) and then touch -- consistent with the "-f" already used by
     // paste/drop when overwriting (forces without going through the trash).
@@ -557,6 +652,10 @@ Item {
     ConflictState.pendingNewFolder = null
     ConflictState.newFolderConflictOpen = false
     if (!pending) return
+    if (!Utils.validBasename(pending.name) || !Utils.basenamePathMatches(pending.name, pending.path)) {
+      Backend.Notifier.notify("Invalid file name")
+      return
+    }
     if (overwrite) {
       // Overwriting an already-existing name (rare case): it implies a
       // destructive rm -rf, it stays in the tested shell action engine -- Phase
@@ -571,41 +670,16 @@ Item {
       })
       return
     }
-    // Common case: NATIVE mkdir. The undo is registered on
-    // successful completion (see the Connections below).
-    actionEngine._nativeMkdirPending[pending.path] = pending.name
-    Backend.FileOperations.mkdir(pending.path)
-  }
-
-  // Closes the loop of the native "new folder": refreshes and registers the
-  // undo when mkdir finishes well. Declarative like Persistence with
-  // JsonStore.
-  Connections {
-    target: Backend.FileOperations
-    function onFinished(op, path) {
-      if (op !== "mkdir") return
-      // Immediate refresh (like actionProc.onFinished): the active panel is
-      // covered by the watcher, but refreshTick also refreshes the background
-      // ones showing this same folder.
-      navController.refresh()
-      NavState.refreshTick += 1
-      var name = actionEngine._nativeMkdirPending[path]
-      if (name === undefined) return // redo or another mkdir: do not re-register
-      delete actionEngine._nativeMkdirPending[path]
-      pushUndo("new folder \"" + name + "\"", function () {
+    // Common case: mkdir is serialized by the same correlated native queue.
+    runNativeMkdir(pending.path, "", function (result) {
+      if (!result.success) return
+      pushUndo("new folder \"" + pending.name + "\"", function () {
         // rmdir (not rm -rf): if there is already something inside, it fails instead of deleting it.
-        return runAction("rmdir -- " + Util.shellQuote(path))
+        return runAction("rmdir -- " + Util.shellQuote(pending.path))
       }, function () {
-        Backend.FileOperations.mkdir(path) // redo: without re-registering
-        return true
+        return runNativeMkdir(pending.path, "")
       })
-    }
-    function onError(op, path, message) {
-      if (op === "mkdir" && actionEngine._nativeMkdirPending[path] !== undefined)
-        delete actionEngine._nativeMkdirPending[path]
-      if (op === "mkdir" && message && message !== "cancelled")
-        Backend.Notifier.notify(message || "Rename failed")
-    }
+    })
   }
 
   function cancelPendingNewFolder() {
@@ -626,6 +700,14 @@ Item {
     ConflictState.pendingBulkRename = null
     ConflictState.bulkRenameConflictOpen = false
     if (!pairs) return
+    var planValid = pairs.every(function (p) {
+      return Utils.validBasename(p.newName) && Utils.basenamePathMatches(p.newName, p.newPath)
+          && Utils.validBasename(p.oldName) && Utils.basenamePathMatches(p.oldName, p.oldPath)
+    })
+    if (!planValid) {
+      Backend.Notifier.notify("Bulk rename cancelled: invalid file name")
+      return
+    }
     // Before, bulk rename was the only risky operation (along with chmod)
     // without any undo -- a badly written {n}/{name}/{ext} pattern could
     // rename dozens of files at once with no safety net.
@@ -656,29 +738,31 @@ Item {
   function commitChmod(mode) {
     ChmodState.chmodOpen = false
     mode = mode.trim()
-    if (!/^[0-7]{3,4}$/.test(mode) || ChmodState.chmodNames.length === 0) return
+    if (!/^[0-7]{3,4}$/.test(mode) || ChmodState.chmodRecords.length === 0) return
     // -R is harmless over a loose file (it doesn't descend anywhere),
     // so it can be applied to the whole command without separating files from
     // folders -- simpler than two different chainCmds branches.
-    var flag = ChmodState.chmodRecursive ? "-R " : ""
-    var cmds = ChmodState.chmodNames.map(function (n) {
-      return "chmod " + flag + mode + " -- " + Util.shellQuote(Utils.joinPath(NavState.currentPath, n))
+    var recursive = ChmodState.chmodRecursive
+    var flag = recursive ? "-R " : ""
+    var records = ChmodState.chmodRecords.map(function (r) {
+      return { name: r.name, path: r.path, originalMode: r.originalMode }
     })
-    var label = ChmodState.chmodNames.length === 1
-      ? "Setting permissions for \"" + ChmodState.chmodNames[0] + "\"…"
-      : "Setting permissions for " + ChmodState.chmodNames.length + " items…"
+    var cmds = records.map(function (r) {
+      return "chmod " + flag + mode + " -- " + Util.shellQuote(r.path)
+    })
+    var label = records.length === 1
+      ? "Setting permissions for \"" + records[0].name + "\"…"
+      : "Setting permissions for " + records.length + " items…"
     // chmod was, along with bulk rename, the only real risky action
     // (even more so with -R) without any undo. It restores the original mode of
     // each selected item -- NOT that of its content if it was applied
     // recursively, see the chmodOriginalModes comment.
-    var names = ChmodState.chmodNames
-    var originalModes = ChmodState.chmodOriginalModes
     var chmodCmd = chainCmds(cmds)
     runAction(chmodCmd, label, function () {
-      var undoLabel = names.length === 1 ? "permissions on \"" + names[0] + "\"" : "permissions on " + names.length + " items"
+      var undoLabel = records.length === 1 ? "permissions on \"" + records[0].name + "\"" : "permissions on " + records.length + " items"
       pushUndo(undoLabel, function () {
-        var undoCmds = names.filter(function (n) { return !!originalModes[n] }).map(function (n) {
-          return "chmod " + originalModes[n] + " -- " + Util.shellQuote(Utils.joinPath(NavState.currentPath, n))
+        var undoCmds = records.filter(function (r) { return !!r.originalMode }).map(function (r) {
+          return "chmod " + r.originalMode + " -- " + Util.shellQuote(r.path)
         })
         if (undoCmds.length === 0) return false
         return runAction(chainCmds(undoCmds))
@@ -722,17 +806,13 @@ Item {
   function restoreFromTrash() {
     var entries = SelectionState.selectedEntries()
     if (entries.length === 0) return
-    // NATIVE restore: FileOperations.restoreByOrigPath instead
-    // of restore-by-origpath.sh. TrashState.trashInfo (see trash-info.sh) already
-    // knows the absolute original path of each item, resolved even for the
-    // trash of another disk (where Path= is relative to the mount point);
-    // restoreByOrigPath uses it to locate the correct .trashinfo in
-    // any active trash, without assuming a single one.
-    var origPaths = entries
-      .filter(function (e) { return !!TrashState.trashInfo[e.name] })
-      .map(function (e) { return TrashState.trashInfo[e.name].origPath })
-    if (origPaths.length === 0) return
-    runNativeRestore(origPaths, entries.length === 1 ? "Restoring \"" + entries[0].name + "\"…" : "Restoring " + entries.length + " items…")
+    // A Trash row is identified by its exact payload path. Original-path lookup
+    // is intentionally reserved for undoing a normal-folder trash action.
+    var payloadPaths = entries
+      .filter(function (e) { return !!e.path && !!TrashState.trashInfo[e.path] })
+      .map(function (e) { return e.path })
+    if (payloadPaths.length === 0) return
+    runNativeRestorePayload(payloadPaths, entries.length === 1 ? "Restoring \"" + entries[0].name + "\"…" : "Restoring " + entries.length + " items…")
   }
 
   // actionEngine.startDropInto() is the one that actually checks
@@ -885,6 +965,10 @@ Item {
         newPath: Utils.joinPath(NavState.currentPath, newName)
       }
     })
+    if (!pairs.every(function (p) { return Utils.validBasename(p.newName) })) {
+      Backend.Notifier.notify("Bulk rename cancelled: invalid file name")
+      return
+    }
     ConflictState.pendingBulkRename = pairs
     var targetCounts = {}
     pairs.forEach(function (p) {
@@ -947,14 +1031,20 @@ Item {
     if (ArchiveState.inArchive) return
     if (index < 0 || index >= NavState.visibleEntries.length) return
     var oldName = NavState.visibleEntries[index].name
-    newName = newName.trim()
-    if (!newName || newName === oldName) return
+    if (!Utils.validBasename(newName) || newName === oldName) {
+      if (newName !== oldName) Backend.Notifier.notify("Invalid file name")
+      return
+    }
     var oldPath = Utils.joinPath(NavState.currentPath, oldName)
     var newPath = Utils.joinPath(NavState.currentPath, newName)
-    ConflictState.pendingRename = { oldPath: oldPath, newPath: newPath }
-    // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
-    if (Backend.FileOperations.existingPaths([newPath]).length > 0) ConflictState.renameConflictOpen = true
-    else actionEngine.runPendingRename(false)
+    // Rename conflicts are not overwrite prompts: displaced entries cannot be
+    // represented by the one-item undo record.
+    if (Backend.FileOperations.existingPaths([newPath]).length > 0) {
+      Backend.Notifier.notify("Rename cancelled: \"" + newName + "\" already exists")
+      return
+    }
+    ConflictState.pendingRename = { oldPath: oldPath, newPath: newPath, newName: newName }
+    actionEngine.runPendingRename()
   }
 
   // Existence check BEFORE creating -- real bug fixed here
@@ -967,8 +1057,7 @@ Item {
   // Overwrite/Cancel dialog that rename already uses is offered.
   function commitNewFile(name) {
     EditModeState.creatingFile = false
-    name = name.trim()
-    if (!name) return
+    if (!Utils.validBasename(name)) { Backend.Notifier.notify("Invalid file name"); return }
     var path = Utils.joinPath(NavState.currentPath, name)
     ConflictState.pendingNewFile = { path: path, name: name }
     // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
@@ -979,8 +1068,7 @@ Item {
   function commitNewFolder(name) {
     EditModeState.creatingFolder = false
     EditModeState.creatingFile = false
-    name = name.trim()
-    if (!name) return
+    if (!Utils.validBasename(name)) { Backend.Notifier.notify("Invalid file name"); return }
     var path = Utils.joinPath(NavState.currentPath, name)
     ConflictState.pendingNewFolder = { path: path, name: name }
     // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
@@ -1077,16 +1165,8 @@ Item {
         // NATIVE move: FileOperations.move. Same undo model
         // (move back / redo), now also native -- 0 shell.
         var overwrite = mode === "overwrite"
-        actionEngine.runNativeMove(pairs, busyLabel, overwrite, function () {
-          var label = pairs.length === 1
-            ? "move \"" + pairs[0].dest.substring(pairs[0].dest.lastIndexOf("/") + 1) + "\""
-            : "move " + pairs.length + " items"
-          var reversed = pairs.map(function (p) { return { src: p.dest, dest: p.src } })
-          actionEngine.pushUndo(label, function () {
-            return actionEngine.runNativeMove(reversed, "", false)      // undo: no-clobber
-          }, function () {
-            return actionEngine.runNativeMove(pairs, "", overwrite)     // redo: like the original
-          })
+        actionEngine.runNativeMove(pairs, busyLabel, overwrite, function (result) {
+          actionEngine._pushMoveUndo(result.succeeded, overwrite)
         })
       }
     }

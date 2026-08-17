@@ -47,9 +47,11 @@ void FileOperations::copy(const QString &source, const QString &destination,
         const CommitOutcome commit =
             commitStagedReplacement(stage, destination, overwrite);
         if (!commit.ok) {
-          if (!commit.committed)
+          if (!commit.committed) {
             forceRemove(stage);
-          return {false, commit.error};
+            return {false, commit.error};
+          }
+          return {true, QString(), commit.error};
         }
         progressFn(realTotal, realTotal);
         return {true, QString()};

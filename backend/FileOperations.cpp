@@ -43,16 +43,29 @@ void FileOperations::run(const QString &op, const QString &path,
         QMetaObject::invokeMethod(
             this,
             [this, op, path, r]() {
-              if (r.ok)
+              if (r.ok) {
+                if (!r.warning.isEmpty())
+                  emit warning(op, path, r.warning);
                 emit finished(op, path);
-              else
+              } else {
                 emit error(op, path, r.message);
+              }
             },
             Qt::QueuedConnection);
       }));
 }
 
 void FileOperations::cancel() { m_cancelled->store(true); }
+
+namespace {
+
+bool validBasename(const QString &name) {
+  return !name.isEmpty() && name != QLatin1String(".") &&
+         name != QLatin1String("..") && !name.contains(QLatin1Char('/')) &&
+         !name.contains(QChar(0));
+}
+
+} // namespace
 
 QStringList FileOperations::existingPaths(const QStringList &paths) const {
   QStringList out;
@@ -88,11 +101,19 @@ QStringList FileOperations::octalModes(const QStringList &paths) const {
 }
 
 void FileOperations::rename(const QString &path, const QString &newName) {
-  const QString dst = QFileInfo(path).absolutePath() + QLatin1Char('/') + newName;
+  if (!validBasename(newName)) {
+    run(QStringLiteral("rename"), path, [](const auto &) -> Result {
+      return {false, QStringLiteral("invalid file name")};
+    });
+    return;
+  }
+  const QString dst = QDir(QFileInfo(path).absolutePath()).filePath(newName);
   run(QStringLiteral("rename"), path, [path, dst](const auto &) -> Result {
-    if (!QFileInfo::exists(path))
+    if (!entryExists(path))
       return {false, QStringLiteral("source does not exist")};
-    if (QFileInfo::exists(dst))
+    if (QFileInfo(dst).isDir())
+      return {false, QStringLiteral("destination is a directory")};
+    if (entryExists(dst))
       return {false, QStringLiteral("destination already exists")};
     if (::rename(QFile::encodeName(path).constData(),
                  QFile::encodeName(dst).constData()) != 0)

@@ -57,8 +57,8 @@ Item {
         onBookmarkOpened: function (bookmark) { if (commandFacade) commandFacade.openBookmark(bookmark) }
         onRecentOpened: function (item) { if (commandFacade) commandFacade.openRecent(item) }
         onRecentLaunched: function (item) { if (commandFacade) commandFacade.launchRecent(item) }
-        onRecentRemoveRequested: function (path) { if (controllers) controllers.BookmarksState.removeRecent(path) }
-        onRecentClearRequested: if (controllers) controllers.BookmarksState.clearRecent()
+        onRecentRemoveRequested: function (path) { BookmarksState.removeRecent(path) }
+        onRecentClearRequested: BookmarksState.clearRecent()
         onMountActivated: function (mount) {
           if (!mount.mounted) { if (controllers) controllers.mountOps.mountDevice(mount) }
           else { if (controllers) controllers.navController.navigateTo(mount.path) }
@@ -236,7 +236,7 @@ Item {
                 + (!NavState.searchQuery && NavState.entries.length > 5000 ? " · large folder, may be slow" : "")
                 + (SelectionState.selectedIndices.length > 1 ? " · " + SelectionState.selectedIndices.length + " selected" : "")
                 + (ClipboardState.clipboardPaths.length > 0 ? " · clipboard: " + ClipboardState.clipboardPaths.length + (ClipboardState.clipboardPaths.length === 1 ? " item" : " items") + (ClipboardState.clipboardMode === "cut" ? " (cut)" : " (copied)") : "")
-                + " · sort: " + (controllers ? controllers.SortState.sortLabel() : "")
+                + " · sort: " + SortState.sortLabel()
               font.pixelSize: Style.font.subtitle
               font.family: Style.font.family
               color: Color.menu.text
@@ -280,15 +280,15 @@ Item {
       onPressed: function (mouse) {
         var p = mapToItem(list.contentItem, mouse.x, mouse.y)
         var vp = mapToItem(list, mouse.x, mouse.y)
-        if (controllers) controllers.SelectionState.startMarquee(p.x, p.y, vp.y, (mouse.modifiers & Qt.ControlModifier) !== 0)
+        SelectionState.startMarquee(p.x, p.y, vp.y, (mouse.modifiers & Qt.ControlModifier) !== 0)
       }
       onPositionChanged: function (mouse) {
         var p = mapToItem(list.contentItem, mouse.x, mouse.y)
         var vp = mapToItem(list, mouse.x, mouse.y)
-        if (controllers) controllers.SelectionState.moveMarquee(p.x, p.y, vp.y, root.measuredRowHeight)
+        SelectionState.moveMarquee(p.x, p.y, vp.y, root.measuredRowHeight)
       }
-      onReleased: if (controllers) controllers.SelectionState.endMarquee()
-      onCanceled: if (controllers) controllers.SelectionState.endMarquee()
+      onReleased: SelectionState.endMarquee()
+      onCanceled: SelectionState.endMarquee()
     }
   }
 

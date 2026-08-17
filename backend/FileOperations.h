@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <qqmlregistration.h>
 
 // C++ backend for file operations. Native replacement
@@ -82,7 +83,8 @@ public:
   Q_INVOKABLE void move(const QString &source, const QString &destination,
                         bool overwrite = false);
 
-  // Renames `path` to `newName` (same directory). Does not overwrite.
+  // Renames `path` to the validated basename `newName` in the same directory.
+  // Does not overwrite. The backend repeats UI validation at the trust boundary.
   Q_INVOKABLE void rename(const QString &path, const QString &newName);
 
   // Deletes `path` PERMANENTLY (recursive if it is a folder; symlinks are
@@ -126,7 +128,7 @@ public:
 
   // Metadata of all the .trashinfo of all the roots: native
   // replacement for trash-info.sh. A list of objects {name, origPath, epoch,
-  // trashRoot}: `name` = stem of the file in files/, `origPath` = Path=
+  // trashRoot, payloadPath}: `name` = stem of the file in files/, `origPath` = Path=
   // percent-decoded (relative to the resolved mount point in disk
   // trashes), `epoch` = DeletionDate in seconds, `trashRoot` = the physical root
   // that contains that item (to restore/delete in the correct trash).
@@ -139,15 +141,25 @@ signals:
   // consumer (ActionEngine) aggregates over the batch. It was a percentage before.
   void progress(const QString &op, const QString &path, qint64 done,
                 qint64 total);
-  // The operation finished successfully.
+  // A committed operation finished with recoverable cleanup work left behind.
+  // `finished` follows this signal for the same operation.
+  void warning(const QString &op, const QString &path, const QString &message);
+  // The operation finished successfully, including committed operations that
+  // emitted a cleanup warning first.
   void finished(const QString &op, const QString &path);
-  // The operation failed; `message` describes the reason.
+  // The operation failed before commit; `message` describes the reason.
   void error(const QString &op, const QString &path, const QString &message);
 
 private:
   struct Result {
+    Result(bool succeeded = false, QString error = {},
+           QString cleanupWarning = {})
+        : ok(succeeded), message(std::move(error)),
+          warning(std::move(cleanupWarning)) {}
+
     bool ok = false;
     QString message;
+    QString warning;
   };
 
   // Progress callback handed to `job` (see run()): safe to call from the

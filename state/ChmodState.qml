@@ -10,6 +10,9 @@ QtObject {
   // A list of names instead of a single string -- chmod supports applying
   // the same mode to the whole selection, not just one file.
   property var chmodNames: []
+  // Immutable snapshots captured when the dialog opens.
+  // Each record is { name, path, originalMode }.
+  property var chmodRecords: []
   // true if on opening the dialog the selected items did NOT all have
   // the same octal mode -- chmodMode is left blank in that case (it does not
   // make sense to preload the mode of "any one" of them) and the UI
@@ -21,6 +24,8 @@ QtObject {
   // nothing to offer over a files-only selection).
   property bool chmodHasDir: false
   property bool chmodRecursive: false
+  // Legacy name-keyed view retained for dialog compatibility. Execution and
+  // history use chmodRecords, whose absolute paths cannot drift after navigation.
   // { "<name>": "<previous octal mode>" }, captured by PropertiesLoader
   // on opening the dialog -- so it can be undone. It restores only the mode of
   // the selected item itself, NOT that of its content if applied with -R --

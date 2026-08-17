@@ -78,6 +78,9 @@ public:
   // sensitive, it is a data POD.
   struct Entry {
     QString name;
+    // Exact absolute payload identity for aggregate listMany() rows. Empty for
+    // normal list() rows to keep their public shape compatible.
+    QString path;
     QString type; // "dir" | "file"
     QString link; // "" | "valid" | "broken"
     bool isDir = false;

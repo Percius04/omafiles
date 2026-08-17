@@ -210,6 +210,8 @@ QVariantList FileOperations::trashInfo() const {
       entry[QStringLiteral("origPath")] = origPath;
       entry[QStringLiteral("epoch")] = epoch;
       entry[QStringLiteral("trashRoot")] = root.root;
+      entry[QStringLiteral("payloadPath")] =
+          QDir(root.files).filePath(name);
       out.append(entry);
     }
   }

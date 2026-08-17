@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "../state"
+import "../shared/Utils.js" as Utils
 
 // "New folder"/"new file" rows of the active panel (Phase 19: the
 // search moved out of here to the expandable magnifier of the top bar,
@@ -37,10 +38,12 @@ Column {
       placeholderText: "New folder name…"
       Accessible.role: Accessible.EditableText
       Accessible.name: "New folder name"
+      Accessible.description: Utils.validBasename(text) ? "" : "Invalid file name"
+      color: Utils.validBasename(text) ? Color.menu.text : "#ef4444"
       onVisibleChanged: if (visible) { text = ""; forceActiveFocus() } else list.forceActiveFocus()
       Keys.onPressed: function (event) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-          conflictActions.commitNewFolder(text)
+          if (Utils.validBasename(text)) conflictActions.commitNewFolder(text)
           event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
           EditModeState.creatingFolder = false
@@ -55,6 +58,7 @@ Column {
       anchors.verticalCenter: parent.verticalCenter
       Accessible.role: Accessible.Button
       Accessible.name: "Create folder"
+      enabled: Utils.validBasename(newFolderField.text)
       onClicked: conflictActions.commitNewFolder(newFolderField.text)
     }
   }
@@ -73,10 +77,12 @@ Column {
       placeholderText: "New file name…"
       Accessible.role: Accessible.EditableText
       Accessible.name: "New file name"
+      Accessible.description: Utils.validBasename(text) ? "" : "Invalid file name"
+      color: Utils.validBasename(text) ? Color.menu.text : "#ef4444"
       onVisibleChanged: if (visible) { text = ""; forceActiveFocus() } else list.forceActiveFocus()
       Keys.onPressed: function (event) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-          conflictActions.commitNewFile(text)
+          if (Utils.validBasename(text)) conflictActions.commitNewFile(text)
           event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
           EditModeState.creatingFile = false
@@ -91,6 +97,7 @@ Column {
       anchors.verticalCenter: parent.verticalCenter
       Accessible.role: Accessible.Button
       Accessible.name: "Create file"
+      enabled: Utils.validBasename(newFileField.text)
       onClicked: conflictActions.commitNewFile(newFileField.text)
     }
   }

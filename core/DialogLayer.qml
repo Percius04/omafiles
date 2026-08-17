@@ -28,7 +28,6 @@ Item {
   property var commandFacade
 
   property alias deleteConfirm: deleteConfirm
-  property alias renameConflictConfirm: renameConflictConfirm
   property alias newFileConflictConfirm: newFileConflictConfirm
   property alias newFolderConflictConfirm: newFolderConflictConfirm
   property alias extractConflictConfirm: extractConflictConfirm
@@ -216,7 +215,10 @@ Item {
     anchors.fill: parent
     z: 10
     opened: root && root.pendingDeleteNames && root.pendingDeleteNames.length > 0
-    message: NavState.currentPath === Paths.trashDir
+    // The action uses the location captured when Delete was requested. Navigation
+    // while this dialog is open must not change a reversible warning into a
+    // permanent deletion (or the reverse).
+    message: controllers && controllers.actionEngine && controllers.actionEngine.pendingDeletePermanent
       ? (root && root.pendingDeleteNames && root.pendingDeleteNames.length === 1
         ? "Delete \"" + root.pendingDeleteNames[0] + "\" PERMANENTLY? This cannot be undone."
         : "Delete " + (root && root.pendingDeleteNames ? root.pendingDeleteNames.length : 0) + " items PERMANENTLY? This cannot be undone.")
@@ -227,24 +229,8 @@ Item {
     cancelText: "Cancel"
     background: Color.menu.background
     foreground: Color.menu.text
-    onCanceled: if (root) root.pendingDeleteNames = []
+    onCanceled: if (root) { root.pendingDeleteNames = []; root.pendingDeleteEntries = [] }
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.confirmDelete()
-  }
-
-  ConfirmDialog {
-    id: renameConflictConfirm
-    anchors.fill: parent
-    z: 10
-    opened: ConflictState.renameConflictOpen
-    message: ConflictState.pendingRename
-      ? "\"" + ConflictState.pendingRename.newPath.substring(ConflictState.pendingRename.newPath.lastIndexOf("/") + 1) + "\" already exists here. Overwrite?"
-      : ""
-    confirmText: "Overwrite"
-    cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
-    onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingRename()
-    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingRename(true)
   }
 
   ConfirmDialog {

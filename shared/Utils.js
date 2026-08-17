@@ -68,6 +68,20 @@ function joinPath(base, name) {
   return base === "/" ? "/" + name : base + "/" + name
 }
 
+// Basenames accepted by Linux file operations in the UI. The C++ rename
+// boundary repeats this check. Spaces, leading dashes and Unicode are valid.
+function validBasename(name) {
+  var s = String(name === undefined || name === null ? "" : name)
+  return s.length > 0 && s !== "." && s !== ".." && s.indexOf("/") < 0
+      && s.indexOf(String.fromCharCode(0)) < 0
+}
+
+function basenamePathMatches(name, path) {
+  if (!validBasename(name) || !path) return false
+  var parent = String(path).substring(0, String(path).lastIndexOf("/"))
+  return joinPath(parent || "/", String(name)) === String(path)
+}
+
 // Absolute path of an entry. In a normal listing (or recursive search)
 // the entry carries `name` relative to `base`. In indexed global search
 // the entry carries an absolute `path`.

@@ -23,12 +23,13 @@ Item {
   property real measuredRowHeight: 0
   property string actionBusyDots: ""
   property var pendingDeleteNames: []
+  property var pendingDeleteEntries: []
   property bool gPending: false
 
   readonly property bool hasPendingEdit: EditModeState.renamingIndex >= 0 || EditModeState.creatingFolder || EditModeState.creatingFile || EditModeState.editingPath
 
   readonly property bool hasBlockingOverlay: root.hasPendingEdit || ContextMenuState.contextMenuOpen
-    || root.pendingDeleteNames.length > 0 || ConflictState.renameConflictOpen || ConflictState.pasteConflictOpen
+    || root.pendingDeleteNames.length > 0 || ConflictState.pasteConflictOpen
     || ConflictState.extractConflictOpen || ConflictState.compressConflictOpen || ConflictState.bulkRenameConflictOpen
     || ConflictState.dropConflictOpen || ConflictState.newFileConflictOpen || ConflictState.newFolderConflictOpen
     || PaletteState.paletteOpen || PreviewState.openWithOpen || DialogsState.bulkRenameOpen
@@ -139,6 +140,7 @@ Item {
     EditModeState.creatingFile = false
     EditModeState.editingPath = false
     root.pendingDeleteNames = []
+    root.pendingDeleteEntries = []
     ContextMenuState.contextMenuOpen = false
     PropertiesState.propertiesOpen = false
     DialogsState.shortcutsHelpOpen = false
@@ -148,7 +150,6 @@ Item {
     PreviewState.previewOpen = false
     NavState.searching = false
     PaletteState.paletteOpen = false
-    ConflictState.renameConflictOpen = false
     ConflictState.pasteConflictOpen = false
     ConflictState.dropConflictOpen = false
     ConflictState.extractConflictOpen = false

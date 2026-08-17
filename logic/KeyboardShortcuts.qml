@@ -39,10 +39,6 @@ Item {
       if (hostDialogs && hostDialogs.deleteConfirm && hostDialogs.deleteConfirm.handleKey(event)) event.accepted = true
       return
     }
-    if (ConflictState.renameConflictOpen) {
-      if (hostDialogs && hostDialogs.renameConflictConfirm && hostDialogs.renameConflictConfirm.handleKey(event)) event.accepted = true
-      return
-    }
     if (ConflictState.extractConflictOpen) {
       if (hostDialogs && hostDialogs.extractConflictConfirm && hostDialogs.extractConflictConfirm.handleKey(event)) event.accepted = true
       return

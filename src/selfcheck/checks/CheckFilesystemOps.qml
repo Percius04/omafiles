@@ -313,5 +313,112 @@ QtObject {
           })
           Backend.FileOperations.copy(sc.note, a)
         })
+
+        sc.add("QML basename validator table", function (done) {
+          var nul = String.fromCharCode(0)
+          var cases = [
+            ["", false], [".", false], ["..", false], ["a/b", false],
+            ["/tmp/x", false], ["../x", false], ["a" + nul + "b", false],
+            ["  ", true], ["-rf", true], ["café-文件", true]
+          ]
+          var ok = cases.every(function (c) { return Utils.validBasename(c[0]) === c[1] })
+          done(ok, ok ? "invalid path forms rejected; spaces/dash/Unicode accepted" : "validator table mismatch")
+        })
+
+        sc.add("Native coordinator reports partial result and keeps exact completed items", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var a = sc.opsDir + "/partial-a"
+          var b = sc.opsDir + "/partial-missing"
+          var d = sc.opsDir + "/partial-d"
+          var ad = sc.opsDir + "/partial-a-moved"
+          var bd = sc.opsDir + "/partial-b-moved"
+          var dd = sc.opsDir + "/partial-d-moved"
+          sc._seqOps([
+            function () { Backend.FileOperations.copy(sc.note, a) },
+            function () { Backend.FileOperations.copy(sc.note, d) }
+          ], done, function () {
+            c.actionEngine.runNativeMove([
+              { src: a, dest: ad }, { src: b, dest: bd }, { src: d, dest: dd }
+            ], "", false, function (result) {
+              var shape = result && result.success === false && result.cancelled === false
+                && result.succeeded.length === 1 && result.failed.length === 1 && result.unattempted.length === 1
+              var targets = Backend.FileOperations.existingPaths([a, ad, d, dd])
+              var exact = targets.indexOf(a) < 0 && targets.indexOf(ad) >= 0
+                && targets.indexOf(d) >= 0 && targets.indexOf(dd) < 0
+              done(shape && exact, "shape=" + shape + " exact=" + exact)
+            })
+          })
+        })
+
+        sc.add("QML rename rejects every existing target and adds no undo", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var base = sc.opsDir + "/rename-conflicts"
+          var setup = "set -eu; rm -rf " + sc._q(base) + "; mkdir -p " + sc._q(base)
+            + "; printf source-file > " + sc._q(base + "/src-file")
+            + "; printf old-file > " + sc._q(base + "/dst-file")
+            + "; printf source-link > " + sc._q(base + "/src-link")
+            + "; printf target > " + sc._q(base + "/target")
+            + "; ln -s target " + sc._q(base + "/dst-link")
+            + "; printf source-broken > " + sc._q(base + "/src-broken")
+            + "; ln -s missing " + sc._q(base + "/dst-broken")
+            + "; printf source-emptydir > " + sc._q(base + "/src-emptydir")
+            + "; mkdir " + sc._q(base + "/dst-emptydir")
+            + "; printf source-nonemptydir > " + sc._q(base + "/src-nonemptydir")
+            + "; mkdir " + sc._q(base + "/dst-nonemptydir")
+            + "; printf child > " + sc._q(base + "/dst-nonemptydir/child")
+          sc._sh(["bash", "-c", setup], function (created) {
+            if (created.exitCode !== 0) { done(false, "setup failed: " + created.stderr); return }
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            var kinds = ["file", "link", "broken", "emptydir", "nonemptydir"]
+            kinds.forEach(function (kind) {
+              ConflictState.pendingRename = {
+                oldPath: base + "/src-" + kind,
+                newPath: base + "/dst-" + kind,
+                newName: "dst-" + kind
+              }
+              c.actionEngine.runPendingRename()
+            })
+            var verify = "set -eu"
+              + "; test \"$(cat " + sc._q(base + "/src-file") + ")\" = source-file"
+              + "; test \"$(cat " + sc._q(base + "/dst-file") + ")\" = old-file"
+              + "; test \"$(cat " + sc._q(base + "/src-link") + ")\" = source-link"
+              + "; test \"$(readlink " + sc._q(base + "/dst-link") + ")\" = target"
+              + "; test \"$(cat " + sc._q(base + "/src-broken") + ")\" = source-broken"
+              + "; test \"$(readlink " + sc._q(base + "/dst-broken") + ")\" = missing"
+              + "; test \"$(cat " + sc._q(base + "/src-emptydir") + ")\" = source-emptydir"
+              + "; test -d " + sc._q(base + "/dst-emptydir")
+              + "; test \"$(cat " + sc._q(base + "/src-nonemptydir") + ")\" = source-nonemptydir"
+              + "; test \"$(cat " + sc._q(base + "/dst-nonemptydir/child") + ")\" = child"
+            sc._sh(["bash", "-c", verify], function (checked) {
+              var noHistory = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 0
+              done(checked.exitCode === 0 && noHistory,
+                   "targets unchanged=" + (checked.exitCode === 0) + " no history=" + noHistory)
+            })
+          })
+        })
+
+        sc.add("Native warning stays correlated and yields an undo-capable success", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var src = sc.opsDir + "/warning-src"
+          var dst = sc.opsDir + "/warning-dst"
+          sc._fileOp(done, function () {
+            UndoState.undoStack = []
+            c.actionEngine.runNativeMove([{ src: src, dest: dst }], "", false, function (result) {
+              c.actionEngine._pushMoveUndo(result.succeeded, false)
+              var ok = result.success && result.succeeded.length === 1
+                && result.warnings.length === 1 && UndoState.undoStack.length === 1
+                && Backend.FileOperations.existingPaths([src]).length === 0
+                && Backend.FileOperations.existingPaths([dst]).length === 1
+              done(ok, "success=" + result.success + " warnings=" + result.warnings.length
+                   + " undo entries=" + UndoState.undoStack.length)
+            })
+            c.actionEngine._handleNativeWarning("move", src, "forced committed cleanup warning")
+          })
+          Backend.FileOperations.copy(sc.note, src)
+        })
   }
 }

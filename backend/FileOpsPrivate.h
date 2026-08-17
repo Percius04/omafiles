@@ -29,6 +29,7 @@ inline constexpr qint64 kChunk = 1 << 20; // 1 MiB
 inline std::atomic<qint64> testCopyFailureAfter{-1};
 inline std::atomic<qint64> testCancelCopyAfter{-1};
 inline std::atomic<bool> testCommitRenameFailure{false};
+inline std::atomic<bool> testSourceStageRenameFailure{false};
 inline QString testRemoveFailurePath;
 inline QString testCancelRemovePath;
 #endif
@@ -131,13 +132,33 @@ inline QString uniqueSiblingPath(const QString &destination,
   return candidate;
 }
 
+inline QString uniqueHiddenSiblingPath(const QString &entry,
+                                       const QString &role) {
+  const QFileInfo info(entry);
+  const QString prefix = QLatin1Char('.') + info.fileName() +
+                         QStringLiteral(".omafiles-") + role + QLatin1Char('-');
+  QString candidate;
+  do {
+    candidate = QDir(info.absolutePath())
+                    .filePath(prefix + QUuid::createUuid().toString(
+                                           QUuid::WithoutBraces));
+  } while (entryExists(candidate));
+  return candidate;
+}
+
 inline bool removeTree(const QString &path,
                        const std::atomic<bool> &cancelled, QString &err);
 
 struct CommitOutcome {
+  CommitOutcome(bool succeeded = false, bool didCommit = false,
+                QString message = {}, QString backupPath = {})
+      : ok(succeeded), committed(didCommit), error(std::move(message)),
+        backup(std::move(backupPath)) {}
+
   bool ok = false;
   bool committed = false;
   QString error;
+  QString backup;
 };
 
 inline bool renameEntry(const QString &source, const QString &destination) {
@@ -149,7 +170,8 @@ inline bool renameEntry(const QString &source, const QString &destination) {
 // exists, keep it as a sibling backup until the stage rename succeeds.
 inline CommitOutcome commitStagedReplacement(const QString &stage,
                                              const QString &destination,
-                                             bool overwrite) {
+                                             bool overwrite,
+                                             bool retainBackup = false) {
   QString backup;
   const bool destinationExists = entryExists(destination);
   if (destinationExists && !overwrite)
@@ -180,15 +202,19 @@ inline CommitOutcome commitStagedReplacement(const QString &stage,
     return {false, false, QStringLiteral("commit failed: %1").arg(commitError)};
   }
 
+  if (retainBackup)
+    return {true, true, QString(), backup};
+
   if (!backup.isEmpty()) {
     std::atomic<bool> neverCancelled{false};
     QString cleanupError;
     if (!removeTree(backup, neverCancelled, cleanupError))
       return {false, true,
               QStringLiteral("replacement committed; backup retained: %1")
-                  .arg(cleanupError)};
+                  .arg(cleanupError),
+              backup};
   }
-  return {true, true, QString()};
+  return {true, true, QString(), QString()};
 }
 
 // Total size (recursive) of a path, for the progress percentage.
@@ -358,15 +384,21 @@ inline bool copyTree(const QString &src, const QString &dst, qint64 &copied,
 inline bool removeTree(const QString &path, const std::atomic<bool> &cancelled,
                 QString &err) {
 #ifdef OMAFILES_UNIT_TEST
-  if (!testRemoveFailurePath.isEmpty() &&
-      samePathComponents(QFileInfo(path).absoluteFilePath(),
-                         QFileInfo(testRemoveFailurePath).absoluteFilePath())) {
+  const auto matchesTestPath = [&path](const QString &configured) {
+    if (configured.isEmpty())
+      return false;
+    const QFileInfo actual(QFileInfo(path).absoluteFilePath());
+    const QFileInfo expected(QFileInfo(configured).absoluteFilePath());
+    return samePathComponents(actual.absoluteFilePath(), expected.absoluteFilePath()) ||
+           (samePathComponents(actual.absolutePath(), expected.absolutePath()) &&
+            actual.fileName().startsWith(QLatin1Char('.') + expected.fileName() +
+                                         QStringLiteral(".omafiles-recovery-")));
+  };
+  if (matchesTestPath(testRemoveFailurePath)) {
     err = QStringLiteral("forced remove failure");
     return false;
   }
-  if (!testCancelRemovePath.isEmpty() &&
-      samePathComponents(QFileInfo(path).absoluteFilePath(),
-                         QFileInfo(testCancelRemovePath).absoluteFilePath()))
+  if (matchesTestPath(testCancelRemovePath))
     const_cast<std::atomic<bool> &>(cancelled).store(true);
 #endif
   if (cancelled.load()) {

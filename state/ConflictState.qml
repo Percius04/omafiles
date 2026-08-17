@@ -8,8 +8,7 @@ import QtQuick
 // logic/ConflictActions.qml (and in RenameOps/ClipboardOps/ArchiveActions/
 // FileOps/DragDropOps for the conflict-free case).
 QtObject {
-  property var pendingRename: null // { oldPath, newPath }
-  property bool renameConflictOpen: false
+  property var pendingRename: null // { oldPath, newPath, newName }
 
   property var pendingNewFile: null // { path, name }
   property bool newFileConflictOpen: false

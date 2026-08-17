@@ -1,6 +1,7 @@
 #include "DirectoryModel.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QRunnable>
 #include <QThreadPool>
@@ -87,7 +88,8 @@ int naturalCompareLowered(const QString &a, const QString &b) {
 // code and simply skips the folders that fail.
 int gatherOne(const QByteArray &p, bool showHidden,
               QVector<DirectoryModel::Entry> &dirs,
-              QVector<DirectoryModel::Entry> &files) {
+              QVector<DirectoryModel::Entry> &files,
+              bool includePath = false) {
   // stat/-d/-r-x follow symlinks just like the script's bash tests.
   struct stat st;
   if (::stat(p.constData(), &st) != 0)
@@ -135,6 +137,8 @@ int gatherOne(const QByteArray &p, bool showHidden,
 
     DirectoryModel::Entry e;
     e.name = QFile::decodeName(n);
+    if (includePath)
+      e.path = QFileInfo(QFile::decodeName(full)).absoluteFilePath();
     e.isSymlink = isLink;
     e.link = isLink ? (followed ? QStringLiteral("valid")
                                 : QStringLiteral("broken"))
@@ -184,8 +188,14 @@ void sortGroup(QVector<DirectoryModel::Entry> &v) {
   QVector<int> idx(n);
   for (int i = 0; i < n; ++i)
     idx[i] = i;
-  std::sort(idx.begin(), idx.end(), [&keys](int a, int b) {
-    return naturalCompareLowered(keys[a], keys[b]) < 0;
+  std::sort(idx.begin(), idx.end(), [&keys, &v](int a, int b) {
+    const int byName = naturalCompareLowered(keys[a], keys[b]);
+    if (byName != 0)
+      return byName < 0;
+    // listMany() can contain equal display names from different trash roots.
+    // Their exact payload paths make the order deterministic and preserve both
+    // identities in signatures. Normal rows have empty paths and stay compatible.
+    return v[a].path < v[b].path;
   });
   QVector<DirectoryModel::Entry> out;
   out.reserve(n);
@@ -221,6 +231,9 @@ QString signatureOf(const QVector<DirectoryModel::Entry> &rows) {
     for (QChar c : e.name)
       mix(c.unicode());
     mix(0x1F); // field separator (avoids collisions by concatenation)
+    for (QChar c : e.path)
+      mix(c.unicode());
+    mix(0x1E);
     mix(static_cast<quint64>(e.size));
     mix(static_cast<quint64>(e.mtime));
     mix(e.isDir ? 1u : 0u);
@@ -263,7 +276,7 @@ DirectoryModel::Result DirectoryModel::scanMany(const QStringList &paths,
   Result r;
   QVector<Entry> dirs, files;
   for (const QString &path : paths)
-    gatherOne(QFile::encodeName(path), showHidden, dirs, files);
+    gatherOne(QFile::encodeName(path), showHidden, dirs, files, true);
   sortInto(dirs, files, r.rows);
   r.signature = signatureOf(r.rows);
   return r;
@@ -365,6 +378,8 @@ QVariantList DirectoryModel::entries() const {
     m[QStringLiteral("size")] = e.size;
     m[QStringLiteral("mtime")] = e.mtime;
     m[QStringLiteral("link")] = e.link;
+    if (!e.path.isEmpty())
+      m[QStringLiteral("path")] = e.path;
     out.push_back(m);
   }
   return out;

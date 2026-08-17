@@ -1,3 +1,4 @@
+#include "DirectoryModel.h"
 #include "FileOperations.h"
 #include "FileOpsPrivate.h"
 #include "PreviewProvider.h"
@@ -47,20 +48,22 @@ QByteArray rawSymlinkTarget(const QString &path) {
 struct OperationResult {
   bool finished = false;
   QString error;
+  QString warning;
 };
 
 OperationResult runOperation(FileOperations &operations,
                              const std::function<void()> &start) {
   QSignalSpy finished(&operations, &FileOperations::finished);
   QSignalSpy error(&operations, &FileOperations::error);
+  QSignalSpy warning(&operations, &FileOperations::warning);
   start();
   const bool delivered = QTest::qWaitFor(
       [&] { return finished.count() + error.count() == 1; }, 10000);
   if (!delivered)
-    return {false, QStringLiteral("timed out")};
+    return {false, QStringLiteral("timed out"), {}};
   if (!error.isEmpty())
-    return {false, error.first().at(2).toString()};
-  return {true, {}};
+    return {false, error.first().at(2).toString(), {}};
+  return {true, {}, warning.isEmpty() ? QString() : warning.first().at(2).toString()};
 }
 
 void createSourceAndDestination(const QString &source, const QString &destination,
@@ -137,11 +140,22 @@ private slots:
   void crossFilesystemMoveCopyInterruptionPreservesDestination();
   void relativeSymlinkTargetIsPreserved_data();
   void relativeSymlinkTargetIsPreserved();
-  void crossFilesystemMoveSourceDeleteFailureKeepsDuplicate();
+  void crossFilesystemMoveCommittedCleanupWarning_data();
+  void crossFilesystemMoveCommittedCleanupWarning();
+  void crossFilesystemMoveSourceStagingFailureRollsBack();
   void trashRejectsSymlinkedComponents_data();
   void trashRejectsSymlinkedComponents();
   void emptyTrashPayloadFailurePreservesMetadata();
   void emptyTrashCancellationPreservesMetadata();
+  void basenameValidation_data();
+  void basenameValidation();
+  void renameEntryKinds_data();
+  void renameEntryKinds();
+  void renameRejectsExistingDestination_data();
+  void renameRejectsExistingDestination();
+  void transactionalRenameMoveReplacesNonDirectory_data();
+  void transactionalRenameMoveReplacesNonDirectory();
+  void listManyCarriesExactPayloadIdentity();
   void previewProviderDestroyUnderQueuedWork();
   void previewProviderGenerationDiscardsOldWork();
   void previewProviderSynchronousDelete();
@@ -152,6 +166,7 @@ void BackendSafetyTest::cleanup() {
   testCopyFailureAfter.store(-1);
   testCancelCopyAfter.store(-1);
   testCommitRenameFailure.store(false);
+  testSourceStageRenameFailure.store(false);
   testRemoveFailurePath.clear();
   testCancelRemovePath.clear();
 }
@@ -402,7 +417,14 @@ void BackendSafetyTest::relativeSymlinkTargetIsPreserved() {
   QCOMPARE(entryExists(source), operation == QLatin1String("copy"));
 }
 
-void BackendSafetyTest::crossFilesystemMoveSourceDeleteFailureKeepsDuplicate() {
+void BackendSafetyTest::crossFilesystemMoveCommittedCleanupWarning_data() {
+  QTest::addColumn<bool>("cancel");
+  QTest::newRow("failure") << false;
+  QTest::newRow("cancellation") << true;
+}
+
+void BackendSafetyTest::crossFilesystemMoveCommittedCleanupWarning() {
+  QFETCH(bool, cancel);
   struct stat tempStat {};
   struct stat shmStat {};
   if (::stat(QFile::encodeName(QDir::tempPath()).constData(), &tempStat) != 0 ||
@@ -418,14 +440,55 @@ void BackendSafetyTest::crossFilesystemMoveSourceDeleteFailureKeepsDuplicate() {
   QVERIFY(writeFile(source, "new"));
   QVERIFY(writeFile(destination, "old"));
 
-  testRemoveFailurePath = source;
+  if (cancel)
+    testCancelRemovePath = source;
+  else
+    testRemoveFailurePath = source;
+  FileOperations operations;
+  const OperationResult result = runOperation(
+      operations, [&] { operations.move(source, destination, true); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(result.warning.contains(cancel ? QStringLiteral("cancelled")
+                                          : QStringLiteral("forced remove failure")));
+  QVERIFY(!entryExists(source));
+  QCOMPARE(readFile(destination), QByteArray("new"));
+  const QStringList recovery = QDir(sourceRoot.path()).entryList(
+      {QStringLiteral(".source.omafiles-recovery-*")}, QDir::AllEntries | QDir::Hidden);
+  QCOMPARE(recovery.size(), 1);
+  QCOMPARE(readFile(sourceRoot.filePath(recovery.first())), QByteArray("new"));
+  const QStringList backups = QDir(destinationRoot.path()).entryList(
+      {QStringLiteral("destination.omafiles-backup-*")}, QDir::AllEntries);
+  QVERIFY(backups.isEmpty());
+}
+
+void BackendSafetyTest::crossFilesystemMoveSourceStagingFailureRollsBack() {
+  struct stat tempStat {};
+  struct stat shmStat {};
+  if (::stat(QFile::encodeName(QDir::tempPath()).constData(), &tempStat) != 0 ||
+      ::stat("/dev/shm", &shmStat) != 0 || tempStat.st_dev == shmStat.st_dev)
+    QSKIP("No writable second filesystem is available at /dev/shm");
+
+  QTemporaryDir destinationRoot;
+  QTemporaryDir sourceRoot(QStringLiteral("/dev/shm/omafiles-safety-XXXXXX"));
+  if (!destinationRoot.isValid() || !sourceRoot.isValid())
+    QSKIP("Could not create cross-filesystem fixtures");
+  const QString source = sourceRoot.filePath(QStringLiteral("source"));
+  const QString destination = destinationRoot.filePath(QStringLiteral("destination"));
+  QVERIFY(writeFile(source, "new"));
+  QVERIFY(writeFile(destination, "old"));
+
+  testSourceStageRenameFailure.store(true);
   FileOperations operations;
   const OperationResult result = runOperation(
       operations, [&] { operations.move(source, destination, true); });
   QVERIFY(!result.finished);
-  QVERIFY(result.error.contains(QStringLiteral("duplicate")));
+  QVERIFY(result.error.contains(QStringLiteral("source staging failed")));
   QCOMPARE(readFile(source), QByteArray("new"));
-  QCOMPARE(readFile(destination), QByteArray("new"));
+  QCOMPARE(readFile(destination), QByteArray("old"));
+  QCOMPARE(QDir(sourceRoot.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+           QStringList{QStringLiteral("source")});
+  QCOMPARE(QDir(destinationRoot.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+           QStringList{QStringLiteral("destination")});
 }
 
 void BackendSafetyTest::trashRejectsSymlinkedComponents_data() {
@@ -533,6 +596,194 @@ void BackendSafetyTest::emptyTrashCancellationPreservesMetadata() {
   QVERIFY(result.error.contains(QStringLiteral("cancelled")));
   QVERIFY(entryExists(payload));
   QVERIFY(entryExists(metadata));
+}
+
+void BackendSafetyTest::basenameValidation_data() {
+  QTest::addColumn<QString>("name");
+  QTest::addColumn<bool>("valid");
+  QTest::newRow("empty") << QString() << false;
+  QTest::newRow("dot") << QStringLiteral(".") << false;
+  QTest::newRow("dot-dot") << QStringLiteral("..") << false;
+  QTest::newRow("slash") << QStringLiteral("a/b") << false;
+  QTest::newRow("absolute") << QStringLiteral("/tmp/x") << false;
+  QTest::newRow("traversal") << QStringLiteral("../x") << false;
+  QTest::newRow("nul") << QString(QChar(u'a')) + QChar(0) + QChar(u'b') << false;
+  QTest::newRow("spaces") << QStringLiteral("  ") << true;
+  QTest::newRow("leading-dash") << QStringLiteral("-rf") << true;
+  QTest::newRow("unicode") << QStringLiteral("café-文件") << true;
+}
+
+void BackendSafetyTest::basenameValidation() {
+  QFETCH(QString, name);
+  QFETCH(bool, valid);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  QVERIFY(writeFile(source, "keep"));
+
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.rename(source, name); });
+  QCOMPARE(result.finished, valid);
+  if (!valid) {
+    QCOMPARE(readFile(source), QByteArray("keep"));
+    QCOMPARE(QDir(temp.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size(), 1);
+  }
+}
+
+void BackendSafetyTest::renameEntryKinds_data() {
+  QTest::addColumn<QString>("kind");
+  QTest::newRow("file") << QStringLiteral("file");
+  QTest::newRow("symlink") << QStringLiteral("symlink");
+  QTest::newRow("broken-symlink") << QStringLiteral("broken-symlink");
+}
+
+void BackendSafetyTest::renameEntryKinds() {
+  QFETCH(QString, kind);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  const QString destination = temp.filePath(QStringLiteral("renamed"));
+  if (kind == QLatin1String("file")) {
+    QVERIFY(writeFile(source, "keep"));
+  } else {
+    const QString target = kind == QLatin1String("symlink")
+                               ? temp.filePath(QStringLiteral("target"))
+                               : temp.filePath(QStringLiteral("missing"));
+    if (kind == QLatin1String("symlink"))
+      QVERIFY(writeFile(target, "target"));
+    QVERIFY(QFile::link(target, source));
+  }
+
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.rename(source, QStringLiteral("renamed")); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(!entryExists(source));
+  QVERIFY(entryExists(destination));
+  if (kind != QLatin1String("file"))
+    QCOMPARE(rawSymlinkTarget(destination), QFile::encodeName(kind == QLatin1String("symlink")
+                                                                  ? temp.filePath(QStringLiteral("target"))
+                                                                  : temp.filePath(QStringLiteral("missing"))));
+}
+
+void BackendSafetyTest::renameRejectsExistingDestination_data() {
+  QTest::addColumn<QString>("kind");
+  QTest::newRow("file") << QStringLiteral("file");
+  QTest::newRow("symlink") << QStringLiteral("symlink");
+  QTest::newRow("broken-symlink") << QStringLiteral("broken-symlink");
+  QTest::newRow("empty-directory") << QStringLiteral("empty-directory");
+  QTest::newRow("nonempty-directory") << QStringLiteral("nonempty-directory");
+}
+
+void BackendSafetyTest::renameRejectsExistingDestination() {
+  QFETCH(QString, kind);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  const QString destination = temp.filePath(QStringLiteral("destination"));
+  const QString target = temp.filePath(QStringLiteral("target"));
+  QVERIFY(writeFile(source, "source"));
+  if (kind == QLatin1String("file")) {
+    QVERIFY(writeFile(destination, "destination"));
+  } else if (kind == QLatin1String("symlink") ||
+             kind == QLatin1String("broken-symlink")) {
+    if (kind == QLatin1String("symlink"))
+      QVERIFY(writeFile(target, "target"));
+    QVERIFY(QFile::link(target, destination));
+  } else {
+    QVERIFY(QDir().mkpath(destination));
+    if (kind == QLatin1String("nonempty-directory"))
+      QVERIFY(writeFile(QDir(destination).filePath(QStringLiteral("child")), "child"));
+  }
+
+  const QByteArray linkTarget = rawSymlinkTarget(destination);
+  FileOperations operations;
+  const OperationResult result = runOperation(
+      operations, [&] { operations.rename(source, QStringLiteral("destination")); });
+  QVERIFY(!result.finished);
+  QCOMPARE(readFile(source), QByteArray("source"));
+  QVERIFY(entryExists(destination));
+  if (kind == QLatin1String("file"))
+    QCOMPARE(readFile(destination), QByteArray("destination"));
+  else if (kind == QLatin1String("symlink") ||
+           kind == QLatin1String("broken-symlink"))
+    QCOMPARE(rawSymlinkTarget(destination), linkTarget);
+  else
+    QCOMPARE(entryExists(QDir(destination).filePath(QStringLiteral("child"))),
+             kind == QLatin1String("nonempty-directory"));
+}
+
+void BackendSafetyTest::transactionalRenameMoveReplacesNonDirectory_data() {
+  QTest::addColumn<QString>("destinationKind");
+  QTest::newRow("file") << QStringLiteral("file");
+  QTest::newRow("symlink") << QStringLiteral("symlink");
+  QTest::newRow("broken-symlink") << QStringLiteral("broken-symlink");
+}
+
+void BackendSafetyTest::transactionalRenameMoveReplacesNonDirectory() {
+  QFETCH(QString, destinationKind);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  const QString destination = temp.filePath(QStringLiteral("destination"));
+  QVERIFY(writeFile(source, "new"));
+  if (destinationKind == QLatin1String("file")) {
+    QVERIFY(writeFile(destination, "old"));
+  } else {
+    const QString target = destinationKind == QLatin1String("symlink")
+                               ? temp.filePath(QStringLiteral("target"))
+                               : temp.filePath(QStringLiteral("missing"));
+    if (destinationKind == QLatin1String("symlink"))
+      QVERIFY(writeFile(target, "target"));
+    QVERIFY(QFile::link(target, destination));
+  }
+
+  FileOperations operations;
+  const OperationResult result = runOperation(
+      operations, [&] { operations.move(source, destination, true); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(!entryExists(source));
+  QCOMPARE(readFile(destination), QByteArray("new"));
+  QVERIFY(!QFileInfo(destination).isSymLink());
+}
+
+void BackendSafetyTest::listManyCarriesExactPayloadIdentity() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString first = temp.filePath(QStringLiteral("first/files"));
+  const QString second = temp.filePath(QStringLiteral("second/files"));
+  QVERIFY(QDir().mkpath(first));
+  QVERIFY(QDir().mkpath(second));
+  QVERIFY(writeFile(QDir(first).filePath(QStringLiteral("same")), "one"));
+  QVERIFY(writeFile(QDir(second).filePath(QStringLiteral("same")), "two"));
+  const QString firstInfo = temp.filePath(QStringLiteral("first/info"));
+  const QString secondInfo = temp.filePath(QStringLiteral("second/info"));
+  QVERIFY(QDir().mkpath(firstInfo));
+  QVERIFY(QDir().mkpath(secondInfo));
+  QVERIFY(writeFile(QDir(firstInfo).filePath(QStringLiteral("same.trashinfo")), "info-one"));
+  QVERIFY(writeFile(QDir(secondInfo).filePath(QStringLiteral("same.trashinfo")), "info-two"));
+
+  DirectoryModel model;
+  QSignalSpy listed(&model, &DirectoryModel::listed);
+  model.listMany({first, second});
+  QVERIFY(listed.wait(10000));
+  const QVariantList entries = model.entries();
+  QCOMPARE(entries.size(), 2);
+  const QStringList paths{entries.at(0).toMap().value(QStringLiteral("path")).toString(),
+                          entries.at(1).toMap().value(QStringLiteral("path")).toString()};
+  const QString firstPayload = QDir(first).filePath(QStringLiteral("same"));
+  const QString secondPayload = QDir(second).filePath(QStringLiteral("same"));
+  QVERIFY(paths.contains(firstPayload));
+  QVERIFY(paths.contains(secondPayload));
+  QCOMPARE(readFile(firstPayload), QByteArray("one"));
+  QCOMPARE(readFile(secondPayload), QByteArray("two"));
+  for (const QString &payload : paths) {
+    const QDir root(QFileInfo(payload).absoluteDir().absolutePath() + QStringLiteral("/.."));
+    const QByteArray expected = payload == firstPayload ? QByteArray("info-one") : QByteArray("info-two");
+    QCOMPARE(readFile(root.filePath(QStringLiteral("info/same.trashinfo"))), expected);
+  }
+  QVERIFY(model.signature() != QString());
 }
 
 void BackendSafetyTest::previewProviderDestroyUnderQueuedWork() {

@@ -67,7 +67,7 @@ Item {
     if (atPath === Paths.trashDir) {
       var parts = []
       if (entry.type !== "dir") parts.push(Utils.formatSize(entry.size))
-      var info = TrashState.trashInfo[entry.name]
+      var info = TrashState.trashInfo[entry.path]
       if (info) {
         var rel = Utils.relativeTime(info.epoch)
         parts.push(rel ? "Deleted " + rel : "Deleted")

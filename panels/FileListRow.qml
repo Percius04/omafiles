@@ -152,6 +152,8 @@ CursorSurface {
       visible: EditModeState.renamingIndex === index
       Accessible.role: Accessible.EditableText
       Accessible.name: "Rename"
+      Accessible.description: Utils.validBasename(text) ? "" : "Invalid file name"
+      color: Utils.validBasename(text) ? Color.menu.text : "#ef4444"
       // Same X as nameCol inside FileRowVisual
       // (thumbSlot.right + rowGap) -- that id is no longer
       // visible from here, so it's repeated with the
@@ -165,7 +167,7 @@ CursorSurface {
       onVisibleChanged: if (visible) { text = modelData.name; forceActiveFocus(); selectAll() } else hostListView.forceActiveFocus()
       Keys.onPressed: function (event) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-          hostConflictActions.commitRename(text)
+          if (Utils.validBasename(text)) hostConflictActions.commitRename(text)
           event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
           EditModeState.renamingIndex = -1

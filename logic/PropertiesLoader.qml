@@ -22,6 +22,8 @@ Item {
   function startChmod(entries) {
     if (ArchiveState.inArchive) return
     if (!entries || entries.length === 0) return
+    var basePath = NavState.currentPath
+    var paths = entries.map(function (e) { return Utils.entryPath(basePath, e) })
     ChmodState.chmodNames = entries.map(function (e) { return e.name })
     ChmodState.chmodHasDir = entries.some(function (e) { return e.type === "dir" })
     ChmodState.chmodRecursive = false
@@ -29,9 +31,7 @@ Item {
     // the paths>` on a single bash line, which blew ARG_MAX with a huge
     // selection. It returns the mode in the SAME order as the paths ("" if it
     // fails), so the mapping with chmodNames (for undo) stays aligned.
-    var modes = Backend.FileOperations.octalModes(entries.map(function (e) {
-      return Utils.joinPath(NavState.currentPath, e.name)
-    }))
+    var modes = Backend.FileOperations.octalModes(paths)
     var valid = modes.filter(function (m) { return m.length > 0 })
     var allSame = valid.length > 0 && valid.every(function (m) { return m === valid[0] })
     ChmodState.chmodMixed = !allSame
@@ -40,6 +40,9 @@ Item {
     for (var i = 0; i < ChmodState.chmodNames.length && i < modes.length; i++)
       if (modes[i].length > 0) orig[ChmodState.chmodNames[i]] = modes[i]
     ChmodState.chmodOriginalModes = orig
+    ChmodState.chmodRecords = entries.map(function (e, i) {
+      return { name: e.name, path: paths[i], originalMode: modes[i] || "" }
+    })
     ChmodState.chmodOpen = true
   }
 

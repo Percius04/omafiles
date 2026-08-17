@@ -30,8 +30,9 @@ void FileOperations::move(const QString &source, const QString &destination,
               commitStagedReplacement(stage, destination, overwrite);
           if (commit.ok)
             return {true, QString()};
-          if (!commit.committed && entryExists(stage) &&
-              !renameEntry(stage, source)) {
+          if (commit.committed)
+            return {true, QString(), commit.error};
+          if (entryExists(stage) && !renameEntry(stage, source)) {
             return {false,
                     QStringLiteral("%1; source rollback failed: %2")
                         .arg(commit.error,
@@ -43,9 +44,9 @@ void FileOperations::move(const QString &source, const QString &destination,
         if (errno != EXDEV)
           return {false, QString::fromLocal8Bit(strerror(errno))};
 
-        // Cross-filesystem move: copy into the sibling stage, commit it, then
-        // delete source. Once committed, a source-delete failure is reported as
-        // a duplicate; destination is never deleted to hide that failure.
+        // Cross-filesystem move: copy into a destination sibling, replace the
+        // destination while retaining its old entry, then atomically hide the
+        // source in a recovery sibling. The source rename is the commit point.
         const qint64 realTotal = treeSize(source);
         const qint64 pctTotal = qMax<qint64>(1, realTotal);
         qint64 copied = 0;
@@ -64,18 +65,63 @@ void FileOperations::move(const QString &source, const QString &destination,
         }
 
         const CommitOutcome commit =
-            commitStagedReplacement(stage, destination, overwrite);
+            commitStagedReplacement(stage, destination, overwrite, true);
         if (!commit.ok) {
-          if (!commit.committed)
+          if (!commit.committed) {
             forceRemove(stage);
-          return {false, commit.error};
+            return {false, commit.error};
+          }
+          return {true, QString(), commit.error};
         }
-        if (!removeTree(source, *cancelled, err)) {
-          return {false,
-                  QStringLiteral("destination committed; source removal incomplete (duplicate may remain): %1")
-                      .arg(err)};
+
+        const QString recovery =
+            uniqueHiddenSiblingPath(source, QStringLiteral("recovery"));
+        bool sourceStaged = false;
+#ifdef OMAFILES_UNIT_TEST
+        if (!testSourceStageRenameFailure.exchange(false))
+          sourceStaged = renameEntry(source, recovery);
+        else
+          errno = EIO;
+#else
+        sourceStaged = renameEntry(source, recovery);
+#endif
+        if (!sourceStaged) {
+          const QString stageError = QString::fromLocal8Bit(strerror(errno));
+          // The destination is only provisional until the source is hidden.
+          // Rename the new entry back to its stage before restoring the old one.
+          if (!renameEntry(destination, stage)) {
+            return {false,
+                    QStringLiteral("source staging failed (%1); destination rollback failed (%2)")
+                        .arg(stageError, QString::fromLocal8Bit(strerror(errno)))};
+          }
+          if (!commit.backup.isEmpty() &&
+              !renameEntry(commit.backup, destination)) {
+            const QString rollbackError = QString::fromLocal8Bit(strerror(errno));
+            renameEntry(stage, destination); // best effort: never discard new data
+            return {false,
+                    QStringLiteral("source staging failed (%1); old destination restore failed (%2)")
+                        .arg(stageError, rollbackError)};
+          }
+          forceRemove(stage);
+          return {false, QStringLiteral("source staging failed: %1").arg(stageError)};
+        }
+
+        // Committed: the visible source is absent and destination is complete.
+        // Cleanup is recoverable and must not turn this into a failed move.
+        QStringList warnings;
+        if (!removeTree(recovery, *cancelled, err)) {
+          warnings << QStringLiteral("move committed; source cleanup retained at %1: %2")
+                          .arg(recovery, err);
+        }
+        if (!commit.backup.isEmpty()) {
+          std::atomic<bool> neverCancelled{false};
+          QString backupError;
+          if (!removeTree(commit.backup, neverCancelled, backupError)) {
+            warnings << QStringLiteral("move committed; old destination backup retained at %1: %2")
+                            .arg(commit.backup, backupError);
+          }
         }
         progressFn(realTotal, realTotal);
-        return {true, QString()};
+        return {true, QString(), warnings.join(QStringLiteral("; "))};
       });
 }

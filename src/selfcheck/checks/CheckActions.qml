@@ -153,13 +153,19 @@ QtObject {
                 function () { return c.actionEngine.runNativeMove([{ src: work, dest: dst }], "", false) })
               var afterPush = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
               c.undoLast()
-              var afterUndo = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+              var retainedDuringUndo = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
               sc._fileOp(done, function () {
-                c.redoLast()
-                var afterRedo = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
-                sc._fileOp(done, function () {
-                  done(afterPush && afterUndo && afterRedo,
-                       "push/undo/redo stacks: " + afterPush + "/" + afterUndo + "/" + afterRedo)
+                Qt.callLater(function () {
+                  var afterUndo = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+                  c.redoLast()
+                  var retainedDuringRedo = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+                  sc._fileOp(done, function () {
+                    Qt.callLater(function () {
+                      var afterRedo = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
+                      done(afterPush && retainedDuringUndo && afterUndo && retainedDuringRedo && afterRedo,
+                           "push/retained/undo/retained/redo: " + afterPush + "/" + retainedDuringUndo + "/" + afterUndo + "/" + retainedDuringRedo + "/" + afterRedo)
+                    })
+                  })
                 })
               })
             })
@@ -248,6 +254,162 @@ QtObject {
             timeout.start()
           })
           Backend.FileOperations.copy(sc.note, oldFile)
+        })
+
+        sc.add("Undo history moves stacks only after delayed success/error/cancel", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          UndoState.undoStack = []
+          UndoState.redoStack = []
+          c.actionEngine.pushUndo("delayed success",
+            function () { return c.actionEngine.runAction("sleep 0.12; true") },
+            function () { return c.actionEngine.runAction("true") })
+          c.undoLast()
+          var retained = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
+          c.undoLast()
+          var blockedSecond = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
+          var successTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 240; repeat: false }', sc)
+          successTimer.triggered.connect(function () {
+            var successMoved = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+            c.actionEngine.pushUndo("delayed error",
+              function () { return c.actionEngine.runAction("sleep 0.08; false") },
+              function () { return c.actionEngine.runAction("true") })
+            c.undoLast()
+            var errorTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 180; repeat: false }', sc)
+            errorTimer.triggered.connect(function () {
+              var errorRetained = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
+              c.actionEngine.pushUndo("delayed cancel",
+                function () { return c.actionEngine.runAction("sleep 2") },
+                function () { return c.actionEngine.runAction("true") })
+              c.undoLast()
+              var cancelTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 40; repeat: false }', sc)
+              cancelTimer.triggered.connect(function () { c.actionEngine.cancelAction() })
+              cancelTimer.start()
+              var settleTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 220; repeat: false }', sc)
+              settleTimer.triggered.connect(function () {
+                var cancelRetained = UndoState.undoStack.length === 2 && UndoState.redoStack.length === 0
+                  && UndoState.undoStack[UndoState.undoStack.length - 1].label === "delayed cancel"
+                done(retained && blockedSecond && successMoved && errorRetained && cancelRetained,
+                     "retained/block/success/error/cancel=" + retained + "/" + blockedSecond + "/" + successMoved + "/" + errorRetained + "/" + cancelRetained)
+              })
+              settleTimer.start()
+            })
+            errorTimer.start()
+          })
+          successTimer.start()
+        })
+
+        sc.add("Two-item move history stays atomic after one undo failure", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var a = sc.opsDir + "/atomic-a"
+          var b = sc.opsDir + "/atomic-b"
+          var da = sc.opsDir + "/atomic-a-moved"
+          var db = sc.opsDir + "/atomic-b-moved"
+          sc._seqOps([
+            function () { Backend.FileOperations.copy(sc.note, a) },
+            function () { Backend.FileOperations.copy(sc.note, b) }
+          ], done, function () {
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            var pairs = [{ src: a, dest: da }, { src: b, dest: db }]
+            c.actionEngine.runNativeMove(pairs, "", false, function (result) {
+              c.actionEngine._pushMoveUndo(result.succeeded, false)
+              var twoEntries = UndoState.undoStack.length === 2
+              sc._fileOp(done, function () {
+                c.undoLast() // B cannot move back while the obstacle exists.
+                var failedTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 100; repeat: false }', sc)
+                failedTimer.triggered.connect(function () {
+                  var failedRetained = UndoState.undoStack.length === 2
+                    && UndoState.redoStack.length === 0
+                    && Backend.FileOperations.existingPaths([da, db]).length === 2
+                  c.actionEngine.runNativeRemove([b], "", false, function () {
+                    c.undoLast()
+                    var secondTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 100; repeat: false }', sc)
+                    secondTimer.triggered.connect(function () {
+                      var oneMoved = UndoState.undoStack.length === 1 && UndoState.redoStack.length === 1
+                        && Backend.FileOperations.existingPaths([b, da]).length === 2
+                        && Backend.FileOperations.existingPaths([a, db]).length === 0
+                      c.undoLast()
+                      var firstTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 100; repeat: false }', sc)
+                      firstTimer.triggered.connect(function () {
+                        var independent = UndoState.undoStack.length === 0 && UndoState.redoStack.length === 2
+                          && Backend.FileOperations.existingPaths([a, b]).length === 2
+                          && Backend.FileOperations.existingPaths([da, db]).length === 0
+                        done(twoEntries && failedRetained && oneMoved && independent,
+                             "two=" + twoEntries + " retained=" + failedRetained
+                             + " one=" + oneMoved + " independent=" + independent)
+                      })
+                      firstTimer.start()
+                    })
+                    secondTimer.start()
+                  })
+                })
+                failedTimer.start()
+              })
+              Backend.FileOperations.copy(sc.note, b) // obstacle for B undo
+            })
+          })
+        })
+
+        sc.add("Committed final native item wins over late cancellation", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var ae = c.actionEngine
+          var pair = { src: sc.opsDir + "/late-cancel-src", dest: sc.opsDir + "/late-cancel-dst" }
+          var entry = { label: "late cancel", undo: function () { return true }, redo: function () { return true } }
+          UndoState.undoStack = [entry]
+          UndoState.redoStack = []
+          ae._historyInFlight = { direction: "undo", entry: entry }
+          ae.nativeBusy = true
+          ae._nativeKind = "move"
+          ae._batchQueue = [pair]
+          ae._batchIdx = 1
+          ae._batchSucceeded = [pair]
+          ae._batchFailed = []
+          ae._batchWarnings = [{ item: pair, message: "cleanup retained" }]
+          ae._cancelling = true
+          ae._batchOnDone = function (result) {
+            var ok = result.success && !result.cancelled && result.succeeded.length === 1
+              && result.warnings.length === 1 && UndoState.undoStack.length === 0
+              && UndoState.redoStack.length === 1 && ae._historyInFlight === null
+            done(ok, "success/cancelled/undo/redo=" + result.success + "/" + result.cancelled
+              + "/" + UndoState.undoStack.length + "/" + UndoState.redoStack.length)
+          }
+          ae._batchNext()
+        })
+
+        sc.add("Chmod undo uses captured path after navigation", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var path = sc.opsDir + "/chmod-captured"
+          sc._fileOp(done, function () {
+            sc._sh(["chmod", "600", path], function (setup) {
+              if (setup.exitCode !== 0) { done(false, "chmod setup failed"); return }
+              UndoState.undoStack = []
+              UndoState.redoStack = []
+              ChmodState.chmodNames = ["chmod-captured"]
+              ChmodState.chmodRecords = [{ name: "chmod-captured", path: path, originalMode: "600" }]
+              ChmodState.chmodRecursive = false
+              c.actionEngine.commitChmod("644")
+              var applyTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 100; repeat: false }', sc)
+              applyTimer.triggered.connect(function () {
+                var applied = Backend.FileOperations.octalModes([path])[0] === "644"
+                var previousPath = NavState.currentPath
+                NavState.currentPath = sc.opsDir + "/different-folder"
+                c.undoLast()
+                var undoTimer = Qt.createQmlObject('import QtQuick; Timer { interval: 120; repeat: false }', sc)
+                undoTimer.triggered.connect(function () {
+                  var restored = Backend.FileOperations.octalModes([path])[0] === "600"
+                  NavState.currentPath = previousPath
+                  done(applied && restored, "applied=" + applied + " restored captured path=" + restored)
+                })
+                undoTimer.start()
+              })
+              applyTimer.start()
+            })
+          })
+          Backend.FileOperations.copy(sc.note, path)
         })
   }
 }

@@ -212,6 +212,8 @@ if(BUILD_TESTING)
 
   qt_add_executable(backend-safety-test
     tests/BackendSafetyTest.cpp
+    backend/DirectoryModel.h
+    backend/DirectoryModel.cpp
     backend/FileOperations.h
     backend/FileOperations.cpp
     backend/FileOperations_Copy.cpp

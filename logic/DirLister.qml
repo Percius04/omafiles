@@ -141,7 +141,8 @@ Item {
         var arr = Backend.FileOperations.trashInfo()
         var info = {}
         for (var i = 0; i < arr.length; i++)
-          info[arr[i].name] = { origPath: arr[i].origPath, epoch: arr[i].epoch, trashRoot: arr[i].trashRoot }
+          info[arr[i].payloadPath] = { origPath: arr[i].origPath, epoch: arr[i].epoch,
+                                      trashRoot: arr[i].trashRoot, payloadPath: arr[i].payloadPath }
         TrashState.trashInfo = info
         _apply()
       } else {

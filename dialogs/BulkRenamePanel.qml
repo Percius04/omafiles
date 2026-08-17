@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "../shared"
+import "../shared/Utils.js" as Utils
 
 // "Bulk rename..." dialog. Sixth component extracted from core.
 // The chosen pattern is requested outward with a parameterized signal
@@ -51,11 +52,15 @@ Item {
       width: parent.width
       Accessible.role: Accessible.EditableText
       Accessible.name: "Bulk rename pattern"
+      readonly property string sampleName: text.replace(/\{name\}/g, "name").replace(/\{ext\}/g, ".txt").replace(/\{n\}/g, "1")
+      readonly property bool generatedNameValid: Utils.validBasename(sampleName)
+      Accessible.description: generatedNameValid ? "" : "Pattern creates an invalid file name"
+      color: generatedNameValid ? Color.menu.text : "#ef4444"
       text: root.pattern
       onVisibleChanged: if (visible) { forceActiveFocus(); selectAll() } else root.focusReturnRequested()
       Keys.onPressed: function (event) {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-          root.renameRequested(text)
+          if (generatedNameValid) root.renameRequested(text)
           event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
           root.closeRequested()
@@ -121,6 +126,7 @@ Item {
       bordered: true
       Accessible.role: Accessible.Button
       Accessible.name: text
+      enabled: bulkRenameField.generatedNameValid
       onClicked: root.renameRequested(bulkRenameField.text)
     }
   }
