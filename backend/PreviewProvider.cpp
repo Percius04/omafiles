@@ -12,6 +12,11 @@
 
 PreviewProvider::PreviewProvider(QObject *parent) : QObject(parent) {}
 
+PreviewProvider::~PreviewProvider() {
+  std::lock_guard<std::mutex> lock(m_life->mutex);
+  m_life->alive = false;
+}
+
 QString PreviewProvider::highlightCode(const QString &source, const QString &extensionOrFilename) {
   return SyntaxHighlighter::highlight(source, extensionOrFilename);
 }
@@ -26,18 +31,30 @@ QVariantList PreviewProvider::audioMetadata(const QString &path) {
 }
 
 void PreviewProvider::requestAudio(const QString &path) {
-  const quint64 gen = ++m_audioGen;
+  auto life = m_life;
+  quint64 generation;
+  {
+    std::lock_guard<std::mutex> lock(life->mutex);
+    generation = ++life->audioGeneration;
+  }
+  PreviewProvider *target = this;
   QThreadPool::globalInstance()->start(QRunnable::create(
-      [this, path, gen]() {
+      [target, life, path, generation]() {
         const MediaInfo::Metadata meta = MediaInfo::extract(path);
         const QVariantList info = MediaInfo::toVariantList(meta);
 
+        std::lock_guard<std::mutex> lock(life->mutex);
+        if (!life->alive || generation != life->audioGeneration)
+          return;
         QMetaObject::invokeMethod(
-            this,
-            [this, path, info, gen]() {
-              if (gen != m_audioGen)
-                return;
-              emit audioReady(path, info);
+            target,
+            [target, life, path, info, generation]() {
+              {
+                std::lock_guard<std::mutex> deliveryLock(life->mutex);
+                if (!life->alive || generation != life->audioGeneration)
+                  return;
+              }
+              emit target->audioReady(path, info);
             },
             Qt::QueuedConnection);
       }));
@@ -71,9 +88,15 @@ QVariantMap PreviewProvider::info(const QString &path) {
 }
 
 void PreviewProvider::requestText(const QString &path, int maxBytes) {
-  const quint64 gen = ++m_gen;
+  auto life = m_life;
+  quint64 generation;
+  {
+    std::lock_guard<std::mutex> lock(life->mutex);
+    generation = ++life->textGeneration;
+  }
+  PreviewProvider *target = this;
   QThreadPool::globalInstance()->start(QRunnable::create(
-      [this, path, maxBytes, gen]() {
+      [target, life, path, maxBytes, generation]() {
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly))
           return; // unreadable: does not emit (the panel keeps the previous/empty state)
@@ -104,13 +127,20 @@ void PreviewProvider::requestText(const QString &path, int maxBytes) {
           highlighted = SyntaxHighlighter::highlight(content, path);
         }
 
+        std::lock_guard<std::mutex> lock(life->mutex);
+        if (!life->alive || generation != life->textGeneration)
+          return;
         QMetaObject::invokeMethod(
-            this,
-            [this, path, content, highlighted, encoding, bytes, lines, truncated, gen]() {
-              // Cancellation: discard if another preview was already requested after.
-              if (gen != m_gen)
-                return;
-              emit textReady(path, content, highlighted, encoding, bytes, lines, truncated);
+            target,
+            [target, life, path, content, highlighted, encoding, bytes, lines,
+             truncated, generation]() {
+              {
+                std::lock_guard<std::mutex> deliveryLock(life->mutex);
+                if (!life->alive || generation != life->textGeneration)
+                  return;
+              }
+              emit target->textReady(path, content, highlighted, encoding, bytes,
+                                     lines, truncated);
             },
             Qt::QueuedConnection);
       }));

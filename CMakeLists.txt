@@ -208,6 +208,44 @@ endforeach()
 # Validation harness (Phase 12)
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
+  find_package(Qt6 REQUIRED COMPONENTS Test)
+
+  qt_add_executable(backend-safety-test
+    tests/BackendSafetyTest.cpp
+    backend/FileOperations.h
+    backend/FileOperations.cpp
+    backend/FileOperations_Copy.cpp
+    backend/FileOperations_Move.cpp
+    backend/FileOperations_Remove.cpp
+    backend/FileOperations_Trash.cpp
+    backend/PreviewProvider.h
+    backend/PreviewProvider.cpp
+    backend/SyntaxHighlighter.h
+    backend/SyntaxHighlighter.cpp
+    backend/SyntaxHighlighter_CFamily.cpp
+    backend/SyntaxHighlighter_Python.cpp
+    backend/SyntaxHighlighter_JavaScript.cpp
+    backend/SyntaxHighlighter_Shell.cpp
+    backend/SyntaxHighlighter_Config.cpp
+    backend/SyntaxHighlighter_Markup.cpp
+    backend/SyntaxHighlighter_CSS.cpp
+    backend/SyntaxHighlighter_SQL.cpp
+    backend/MediaInfo.h
+    backend/MediaInfo.cpp
+    backend/MediaInfo_Mp3.cpp
+    backend/MediaInfo_Flac.cpp
+    backend/MediaInfo_Wav.cpp
+    backend/MediaInfo_Ogg.cpp
+    backend/MediaInfo_Mp4.cpp
+  )
+  target_compile_definitions(backend-safety-test PRIVATE OMAFILES_UNIT_TEST)
+  target_include_directories(backend-safety-test PRIVATE backend)
+  target_link_libraries(backend-safety-test PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+  add_test(NAME backend.safety COMMAND $<TARGET_FILE:backend-safety-test>)
+  set_tests_properties(backend.safety PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
   # Keep selfcheck state and trash fixtures away from the live user profile.
   set(OMAFILES_SELFCHECK_HOME "${CMAKE_BINARY_DIR}/selfcheck-home")
   file(MAKE_DIRECTORY

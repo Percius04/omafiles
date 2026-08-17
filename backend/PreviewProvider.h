@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <memory>
+#include <mutex>
 #include <qqmlregistration.h>
 
 // C++ backend for previews. Replaces the preview panel's
@@ -21,6 +23,7 @@ class PreviewProvider : public QObject {
 
 public:
   explicit PreviewProvider(QObject *parent = nullptr);
+  ~PreviewProvider() override;
 
   // File metadata (QFileInfo + QMimeDatabase). Cheap and synchronous:
   // { name, path, size, mtime, mime, permissions ("rwxr-x---"...),
@@ -57,6 +60,16 @@ signals:
   void audioReady(const QString &path, const QVariantList &info);
 
 private:
-  quint64 m_gen = 0;      // generation of the last text request (cancellation)
-  quint64 m_audioGen = 0; // generation of the last audio request (cancellation)
+  // Workers retain this control block rather than dereferencing the provider.
+  // A worker holds the mutex while it queues delivery, so destruction cannot
+  // race invokeMethod's target use. Queued delivery checks life and generation
+  // under the mutex, then unlocks before emitting on the provider's thread.
+  // Generations stay independent from the provider's lifetime.
+  struct Life {
+    std::mutex mutex;
+    bool alive = true;
+    quint64 textGeneration = 0;
+    quint64 audioGeneration = 0;
+  };
+  std::shared_ptr<Life> m_life = std::make_shared<Life>();
 };
