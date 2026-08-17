@@ -1,7 +1,7 @@
 # Maintainer: Josema <josema@example.com>
 pkgname=omafiles
 pkgver=0.9.3
-pkgrel=1
+pkgrel=2
 pkgcommit=67f0bfdb3e0279800900f5089dff963a75047f9d
 pkgdesc="A high-performance, native Qt6 file manager designed around the DHH philosophy"
 arch=('x86_64')
@@ -57,4 +57,9 @@ check() {
 package() {
   cd "${pkgname}"
   DESTDIR="${pkgdir}" cmake --install build
+
+  # Test execution creates Python bytecode in the source tree; Qt also emits a
+  # build-only QML directory map. Neither belongs in the runtime package.
+  find "${pkgdir}/usr/share/omafiles" -type d -name __pycache__ -prune -exec rm -rf {} +
+  rm -f "${pkgdir}/usr/lib/qt6/qml/Omafiles/Backend/omafiles-backend_qml_module_dir_map.qrc"
 }
