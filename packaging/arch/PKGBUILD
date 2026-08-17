@@ -42,10 +42,16 @@ build() {
   # audit 2026-08-16).
   cmake -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=ON \
     -DOMAFILES_BIN_INSTALL_DIR=/usr/bin \
     -DOMAFILES_DATA_INSTALL_DIR=/usr/share \
     -DOMAFILES_QML_INSTALL_DIR=/usr/lib/qt6/qml
   cmake --build build
+}
+
+check() {
+  cd "${pkgname}"
+  ctest --test-dir build --output-on-failure
 }
 
 package() {

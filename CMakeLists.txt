@@ -7,6 +7,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
+option(OMAFILES_ENABLE_ASAN "Build OmaFiles with AddressSanitizer" OFF)
+if(OMAFILES_ENABLE_ASAN)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "OMAFILES_ENABLE_ASAN requires GCC or Clang")
+  endif()
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Pdf DBus Network)
 
 qt_standard_project_setup()
@@ -341,3 +350,10 @@ add_custom_target(selfcheck
   DEPENDS omafiles-standalone
   USES_TERMINAL
   COMMENT "Running source-tree and installed-tree selfchecks through CTest")
+
+add_custom_target(asan-check
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/run-asan.sh"
+          "${CMAKE_BINARY_DIR}/asan"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  USES_TERMINAL
+  COMMENT "Running native safety tests under AddressSanitizer")
