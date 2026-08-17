@@ -47,7 +47,7 @@ QtObject {
           var base = sc.dir + "/content-srch-" + Date.now()
           var mk = function (p) { return function () { Backend.FileOperations.mkdir(p) } }
           var cp = function (p) { return function () { Backend.FileOperations.copy(sc.note, p) } }
-          
+
           sc._seqOps([
             mk(base), mk(base + "/src"),
             cp(base + "/src/main.txt"),

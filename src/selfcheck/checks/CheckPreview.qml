@@ -109,26 +109,26 @@ QtObject {
           var cppSample = "#include <iostream>\nint main() { return 0; }\n"
           var pySample = "def hello():\n    print('world')\n"
           var qmlSample = "import QtQuick\nItem { id: root; property int count: 42 }\n"
-          
+
           var cppHtml = Backend.PreviewProvider.highlightCode(cppSample, "main.cpp")
           var pyHtml = Backend.PreviewProvider.highlightCode(pySample, "script.py")
           var qmlHtml = Backend.PreviewProvider.highlightCode(qmlSample, "App.qml")
-          
+
           var cppOk = cppHtml.indexOf("<pre style=\"white-space:pre-wrap; word-break:break-word\">") >= 0
                    && cppHtml.indexOf("color:#fb4934") >= 0 // keyword (int, return)
                    && cppHtml.indexOf("color:#8ec07c") >= 0 // preproc (#include)
-                   
+
           var pyOk = pyHtml.indexOf("color:#fb4934") >= 0 // def
                   && pyHtml.indexOf("color:#b8bb26") >= 0 // string ('world')
-                  
+
           var qmlOk = qmlHtml.indexOf("color:#fb4934") >= 0 // import, property
                    && qmlHtml.indexOf("color:#d3869b") >= 0 // number 42
-                   
-          var supported = Backend.PreviewProvider.isHighlightable("test.cpp") 
+
+          var supported = Backend.PreviewProvider.isHighlightable("test.cpp")
                        && Backend.PreviewProvider.isHighlightable("test.py")
                        && Backend.PreviewProvider.isHighlightable("test.rs")
                        && !Backend.PreviewProvider.isHighlightable("test.unknownext123")
-                       
+
           var allOk = cppOk && pyOk && qmlOk && supported
           done(allOk, allOk ? "C++, Python, QML highlighting OK" : "highlighting check failed")
         })
@@ -136,7 +136,7 @@ QtObject {
         sc.add("Backend.PreviewProvider native audio metadata", function (done) {
           var syncInfo = Backend.PreviewProvider.audioMetadata(sc.wav)
           var hasWav = syncInfo.length > 0
-          
+
           function onAudio(path, info) {
             if (path !== sc.wav) return
             Backend.PreviewProvider.audioReady.disconnect(onAudio)
@@ -148,7 +148,7 @@ QtObject {
             var pass = hasWav && ok && codecOk
             done(pass, pass ? "WAV metadata parsed: items=" + info.length : "audio metadata extraction failed")
           }
-          
+
           Backend.PreviewProvider.audioReady.connect(onAudio)
           Backend.PreviewProvider.requestAudio(sc.wav)
         })
