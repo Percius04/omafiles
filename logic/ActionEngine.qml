@@ -184,6 +184,13 @@ Item {
       ActionState.actionProgressPct = Math.min(100, (_progBase + done) * 100 / _progTotal)
     }
 
+    function onOperationDetail(op, path, key, value) {
+      if (!_matchesNativeSignal(op, path) || key !== "payloadPath") return
+      var item = _batchQueue[_batchIdx]
+      item.payloadPath = value
+      if (item.payloadRecord) item.payloadRecord.payloadPath = value
+    }
+
     function onWarning(op, path, message) {
       _handleNativeWarning(op, path, message)
     }
@@ -241,10 +248,14 @@ Item {
   }
 
   function runNativeTrash(paths, busyLabel, onDone) {
-    return _runNative("trash", _toPairs(paths), busyLabel, false, onDone)
+    var items = paths.map(function (p) {
+      return typeof p === "string" ? { src: p } : p
+    })
+    return _runNative("trash", items, busyLabel, false, onDone)
   }
 
-  // Original-path restore is retained only for undoing a normal-folder trash.
+  // Original-path restore remains available for callers that do not own an
+  // exact trash payload identity.
   function runNativeRestore(origPaths, busyLabel, onDone) {
     return _runNative("restore", _toPairs(origPaths), busyLabel, false, onDone)
   }
@@ -409,18 +420,22 @@ Item {
       // absolute paths captured HERE (not inside the closures
       // below) -- NavState.currentPath may have changed by the time
       // the user presses undo, much later.
-      var origPaths = entries.map(function (entry) { return Utils.entryPath(NavState.currentPath, entry) })
-      runNativeTrash(origPaths, "", function (result) {
-        // Each succeeded item owns one history entry. A later restore failure
-        // can therefore leave that item on the undo stack without partly
-        // changing a multi-item entry.
+      var records = entries.map(function (entry) {
+        return { origPath: Utils.entryPath(NavState.currentPath, entry), payloadPath: "" }
+      })
+      var trashItems = records.map(function (record) {
+        return { src: record.origPath, payloadRecord: record }
+      })
+      runNativeTrash(trashItems, "", function (result) {
+        // Each succeeded item owns the exact payload returned by moveToTrash.
+        // Redo updates the same mutable record before its finished signal.
         result.succeeded.forEach(function (completed) {
-          var path = completed.src
-          var name = path.substring(path.lastIndexOf("/") + 1)
+          var record = completed.payloadRecord
+          var name = record.origPath.substring(record.origPath.lastIndexOf("/") + 1)
           pushUndo("delete \"" + name + "\"", function () {
-            return runNativeRestore([path], "")
+            return runNativeRestorePayload([record.payloadPath], "")
           }, function () {
-            return runNativeTrash([path], "")
+            return runNativeTrash([{ src: record.origPath, payloadRecord: record }], "")
           })
         })
       })

@@ -66,6 +66,64 @@ QtObject {
           Backend.FileOperations.copy(sc.note, work)
         })
 
+        sc.add("Trash undo restores its exact generation", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var work = sc.opsDir + "/exact-generation.txt"
+          var record = { origPath: work, payloadPath: "" }
+          UndoState.undoStack = []
+          UndoState.redoStack = []
+          sc._sh(["bash", "-c", "printf first > " + sc._q(work)], function (createdFirst) {
+            if (createdFirst.exitCode !== 0) { done(false, "first generation setup failed"); return }
+            c.actionEngine.runNativeTrash([{ src: work, payloadRecord: record }], "", function (firstTrash) {
+              if (!firstTrash.success || firstTrash.succeeded.length !== 1
+                  || firstTrash.succeeded[0].payloadPath !== record.payloadPath
+                  || !record.payloadPath) {
+                done(false, "first trash did not report an exact payload"); return
+              }
+              c.actionEngine.pushUndo("exact generation",
+                function () { return c.actionEngine.runNativeRestorePayload([record.payloadPath], "") },
+                function () { return c.actionEngine.runNativeTrash([{ src: record.origPath, payloadRecord: record }], "") })
+              sc._sh(["bash", "-c", "printf second > " + sc._q(work)], function (createdSecond) {
+                if (createdSecond.exitCode !== 0) { done(false, "second generation setup failed"); return }
+                sc._fileOp(done, function () {
+                  sc._fileOp(done, function () {
+                    sc._sh(["cat", work], function (readBack) {
+                      var remaining = Backend.FileOperations.trashInfo().filter(function (item) {
+                        return item.origPath === work
+                      })
+                      var firstUndoOk = readBack.stdout === "first" && remaining.length === 1
+                        && remaining[0].payloadPath !== record.payloadPath
+                        && UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+                      if (!firstUndoOk) {
+                        done(false, "first undo restored=" + readBack.stdout + " unrelated generations=" + remaining.length)
+                        return
+                      }
+                      sc._fileOp(done, function () {
+                        var redoOk = Backend.FileOperations.existingPaths([work]).length === 0
+                          && Backend.FileOperations.existingPaths([record.payloadPath]).length === 1
+                          && UndoState.undoStack.length === 1 && UndoState.redoStack.length === 0
+                        sc._fileOp(done, function () {
+                          sc._sh(["cat", work], function (secondReadBack) {
+                            var secondUndoOk = secondReadBack.stdout === "first"
+                              && UndoState.undoStack.length === 0 && UndoState.redoStack.length === 1
+                            done(redoOk && secondUndoOk,
+                                 "redo payload tracked=" + redoOk + " second undo=" + secondReadBack.stdout)
+                          })
+                        })
+                        c.actionEngine.undoLast()
+                      })
+                      c.actionEngine.redoLast()
+                    })
+                  })
+                  c.actionEngine.undoLast()
+                })
+                Backend.FileOperations.trash(work)
+              })
+            })
+          })
+        })
+
         sc.add("Undo sequence (LIFO: reverts the last one first)", function (done) {
           var c = sc._content
           if (!c) { done(false, "no composition root"); return }
@@ -352,7 +410,7 @@ QtObject {
           })
         })
 
-        sc.add("Committed final native item wins over late cancellation", function (done) {
+        sc.add("Warning then finished advances history exactly once", function (done) {
           var c = sc._content
           if (!c) { done(false, "no composition root"); return }
           var ae = c.actionEngine

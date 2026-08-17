@@ -11,7 +11,7 @@ void FileOperations::trash(const QString &path) {
     QString trashPath;
     if (!QFile::moveToTrash(path, &trashPath))
       return {false, QStringLiteral("could not move to trash")};
-    return {true, QString()};
+    return {true, QString(), QString(), trashPath};
   });
 }
 
@@ -67,8 +67,86 @@ void FileOperations::emptyTrash() {
   });
 }
 
+namespace {
+
+struct RestoreOutcome {
+  bool ok = false;
+  QString error;
+  QString warning;
+};
+
+RestoreOutcome restorePayload(const QString &source, const QString &destination,
+                              const QString &metadata,
+                              const std::atomic<bool> &cancelled) {
+  if (!QDir().mkpath(QFileInfo(destination).absolutePath()))
+    return {false, QStringLiteral("cannot create restore parent"), {}};
+
+  injectDestinationRaceForTest(destination);
+  bool committed = renameEntryNoReplace(source, destination);
+  bool copied = false;
+  if (!committed) {
+    const int renameError = errno;
+    if (renameError != EXDEV) {
+      return {false,
+              renameError == EEXIST
+                  ? QStringLiteral("destination already exists: %1").arg(destination)
+                  : QString::fromLocal8Bit(strerror(renameError)),
+              {}};
+    }
+
+    const QString stage = uniqueSiblingPath(destination, QStringLiteral("stage"));
+    qint64 copiedBytes = 0;
+    QString copyError;
+    const auto noop = [](qint64) {};
+    if (!copyTree(source, stage, copiedBytes, noop, cancelled, copyError)) {
+      forceRemove(stage);
+      return {false, copyError, {}};
+    }
+    injectRestoreCommitRaceForTest(destination);
+    const CommitOutcome commit =
+        commitStagedReplacement(stage, destination, false, true);
+    if (!commit.ok) {
+      return {false,
+              QStringLiteral("%1; complete restore stage retained at %2")
+                  .arg(commit.error, stage),
+              {}};
+    }
+    committed = true;
+    copied = true;
+  }
+
+  Q_ASSERT(committed);
+  QStringList warnings;
+  if (copied) {
+    QString cleanupError;
+    if (!removeTree(source, cancelled, cleanupError)) {
+      warnings << QStringLiteral("restore committed; trash payload retained at %1: %2")
+                      .arg(source, cleanupError);
+    }
+  }
+
+  if (warnings.isEmpty()) {
+    bool metadataRemoved = false;
+#ifdef OMAFILES_UNIT_TEST
+    if (testMetadataRemoveFailurePath.isEmpty() ||
+        !samePathComponents(metadata, testMetadataRemoveFailurePath))
+      metadataRemoved = QFile::remove(metadata);
+#else
+    metadataRemoved = QFile::remove(metadata);
+#endif
+    if (!metadataRemoved)
+      warnings << QStringLiteral("restore committed; metadata retained at %1")
+                      .arg(metadata);
+  }
+  return {true, {}, warnings.join(QStringLiteral("; "))};
+}
+
+} // namespace
+
 void FileOperations::restore(const QString &path) {
-  run(QStringLiteral("restore"), path, [path](const auto &) -> Result {
+  m_cancelled->store(false);
+  auto cancelled = m_cancelled;
+  run(QStringLiteral("restore"), path, [path, cancelled](const auto &) -> Result {
     const QFileInfo payload(path);
     const QString payloadParent = payload.absoluteDir().canonicalPath();
     ValidatedTrashRoot selected;
@@ -108,15 +186,9 @@ void FileOperations::restore(const QString &path) {
     if (!orig.startsWith(QLatin1Char('/')))
       orig = QFileInfo(selected.root).absolutePath() + QLatin1Char('/') + orig;
 
-    if (entryExists(orig))
-      return {false, QStringLiteral("target already exists: %1").arg(orig)};
-    if (!QDir().mkpath(QFileInfo(orig).absolutePath()))
-      return {false, QStringLiteral("cannot create restore parent")};
-    if (!renameEntry(path, orig))
-      return {false, QString::fromLocal8Bit(strerror(errno))};
-    if (!QFile::remove(infoPath))
-      return {false, QStringLiteral("restored payload but metadata remains")};
-    return {true, QString()};
+    const RestoreOutcome restored =
+        restorePayload(path, orig, infoPath, *cancelled);
+    return {restored.ok, restored.error, restored.warning};
   });
 }
 
@@ -164,30 +236,9 @@ void FileOperations::restoreByOrigPath(const QString &origPath) {
     const QString src = QDir(bestRoot.files).filePath(name);
     if (!safeTrashPayloadEntry(src, bestRoot.files))
       return {false, QStringLiteral("trash file missing or unsafe: %1").arg(src)};
-    if (entryExists(origPath))
-      return {false,
-              QStringLiteral("destination already exists: %1").arg(origPath)};
-
-    if (!QDir().mkpath(QFileInfo(origPath).absolutePath()))
-      return {false, QStringLiteral("cannot create restore parent")};
-    if (!renameEntry(src, origPath)) {
-      if (errno != EXDEV)
-        return {false, QString::fromLocal8Bit(strerror(errno))};
-      qint64 copied = 0;
-      QString error;
-      const auto noop = [](qint64) {};
-      if (!copyTree(src, origPath, copied, noop, *cancelled, error)) {
-        forceRemove(origPath);
-        return {false, error};
-      }
-      if (!removeTree(src, *cancelled, error))
-        return {false,
-                QStringLiteral("restore copied; trash payload retained: %1")
-                    .arg(error)};
-    }
-    if (!QFile::remove(bestInfo))
-      return {false, QStringLiteral("restored payload but metadata remains")};
-    return {true, QString()};
+    const RestoreOutcome restored =
+        restorePayload(src, origPath, bestInfo, *cancelled);
+    return {restored.ok, restored.error, restored.warning};
   });
 }
 

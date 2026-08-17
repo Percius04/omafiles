@@ -48,7 +48,8 @@ void FileOperations::copy(const QString &source, const QString &destination,
             commitStagedReplacement(stage, destination, overwrite);
         if (!commit.ok) {
           if (!commit.committed) {
-            forceRemove(stage);
+            if (commit.backup.isEmpty())
+              forceRemove(stage);
             return {false, commit.error};
           }
           return {true, QString(), commit.error};

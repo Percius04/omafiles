@@ -141,6 +141,10 @@ signals:
   // consumer (ActionEngine) aggregates over the batch. It was a percentage before.
   void progress(const QString &op, const QString &path, qint64 done,
                 qint64 total);
+  // Operation-specific detail emitted before finished. Trash uses
+  // key="payloadPath" to report QFile::moveToTrash's exact payload identity.
+  void operationDetail(const QString &op, const QString &path,
+                       const QString &key, const QString &value);
   // A committed operation finished with recoverable cleanup work left behind.
   // `finished` follows this signal for the same operation.
   void warning(const QString &op, const QString &path, const QString &message);
@@ -153,13 +157,14 @@ signals:
 private:
   struct Result {
     Result(bool succeeded = false, QString error = {},
-           QString cleanupWarning = {})
+           QString cleanupWarning = {}, QString payload = {})
         : ok(succeeded), message(std::move(error)),
-          warning(std::move(cleanupWarning)) {}
+          warning(std::move(cleanupWarning)), payloadPath(std::move(payload)) {}
 
     bool ok = false;
     QString message;
     QString warning;
+    QString payloadPath;
   };
 
   // Progress callback handed to `job` (see run()): safe to call from the

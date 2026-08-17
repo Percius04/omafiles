@@ -44,6 +44,9 @@ void FileOperations::run(const QString &op, const QString &path,
             this,
             [this, op, path, r]() {
               if (r.ok) {
+                if (!r.payloadPath.isEmpty())
+                  emit operationDetail(op, path, QStringLiteral("payloadPath"),
+                                       r.payloadPath);
                 if (!r.warning.isEmpty())
                   emit warning(op, path, r.warning);
                 emit finished(op, path);

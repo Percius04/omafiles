@@ -32,7 +32,9 @@ void FileOperations::move(const QString &source, const QString &destination,
             return {true, QString()};
           if (commit.committed)
             return {true, QString(), commit.error};
-          if (entryExists(stage) && !renameEntry(stage, source)) {
+          if (!commit.backup.isEmpty())
+            return {false, commit.error};
+          if (entryExists(stage) && !renameEntryNoReplace(stage, source)) {
             return {false,
                     QStringLiteral("%1; source rollback failed: %2")
                         .arg(commit.error,
@@ -68,7 +70,8 @@ void FileOperations::move(const QString &source, const QString &destination,
             commitStagedReplacement(stage, destination, overwrite, true);
         if (!commit.ok) {
           if (!commit.committed) {
-            forceRemove(stage);
+            if (commit.backup.isEmpty())
+              forceRemove(stage);
             return {false, commit.error};
           }
           return {true, QString(), commit.error};
@@ -95,12 +98,12 @@ void FileOperations::move(const QString &source, const QString &destination,
                         .arg(stageError, QString::fromLocal8Bit(strerror(errno)))};
           }
           if (!commit.backup.isEmpty() &&
-              !renameEntry(commit.backup, destination)) {
+              !renameEntryNoReplace(commit.backup, destination)) {
             const QString rollbackError = QString::fromLocal8Bit(strerror(errno));
-            renameEntry(stage, destination); // best effort: never discard new data
+            renameEntryNoReplace(stage, destination); // preserve any rollback race winner
             return {false,
-                    QStringLiteral("source staging failed (%1); old destination restore failed (%2)")
-                        .arg(stageError, rollbackError)};
+                    QStringLiteral("source staging failed (%1); old destination restore failed (%2); new stage retained at %3; old destination retained at %4")
+                        .arg(stageError, rollbackError, stage, commit.backup)};
           }
           forceRemove(stage);
           return {false, QStringLiteral("source staging failed: %1").arg(stageError)};

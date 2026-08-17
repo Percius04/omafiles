@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QThreadPool>
+#include <QUrl>
 
 #include <functional>
 #include <sys/stat.h>
@@ -99,6 +100,23 @@ bool destinationHasNewContent(const QString &destination, bool directory) {
              : readFile(destination) == QByteArray("new");
 }
 
+bool createTrashItem(const QString &dataHome, const QString &name,
+                     const QString &originalPath, const QByteArray &content,
+                     QString &payload, QString &metadata) {
+  const QString trash = QDir(dataHome).filePath(QStringLiteral("Trash"));
+  const QString files = QDir(trash).filePath(QStringLiteral("files"));
+  const QString info = QDir(trash).filePath(QStringLiteral("info"));
+  if (!QDir().mkpath(files) || !QDir().mkpath(info))
+    return false;
+  payload = QDir(files).filePath(name);
+  metadata = QDir(info).filePath(name + QStringLiteral(".trashinfo"));
+  return writeFile(payload, content) &&
+         writeFile(metadata,
+                   QByteArray("[Trash Info]\nPath=") +
+                       QUrl::toPercentEncoding(originalPath) +
+                       QByteArray("\nDeletionDate=2026-01-01T00:00:00\n"));
+}
+
 class ScopedEnvironment {
 public:
   ScopedEnvironment(const char *name, const QByteArray &value)
@@ -130,6 +148,8 @@ private slots:
   void transferRejectsUnsafePaths();
   void noReplaceRacePreservesWinner_data();
   void noReplaceRacePreservesWinner();
+  void overwriteRacePreservesWinnerAndRecovery_data();
+  void overwriteRacePreservesWinnerAndRecovery();
   void overwriteCommitFailurePreservesDestination_data();
   void overwriteCommitFailurePreservesDestination();
   void copyFailurePreservesDestination_data();
@@ -145,6 +165,14 @@ private slots:
   void crossFilesystemMoveCommittedCleanupWarning_data();
   void crossFilesystemMoveCommittedCleanupWarning();
   void crossFilesystemMoveSourceStagingFailureRollsBack();
+  void removeTreeSwapNeverFollowsSymlink();
+  void removeTreeDeletesSymlinkLeaf();
+  void removeTreeSupportsSymlinkedParent();
+  void trashReportsExactPayloadPath();
+  void restoreRacePreservesWinnerAndPayload_data();
+  void restoreRacePreservesWinnerAndPayload();
+  void restoreCleanupFailureWarnsThenFinishes_data();
+  void restoreCleanupFailureWarnsThenFinishes();
   void trashRejectsSymlinkedComponents_data();
   void trashRejectsSymlinkedComponents();
   void emptyTrashPayloadFailurePreservesMetadata();
@@ -170,8 +198,13 @@ void BackendSafetyTest::cleanup() {
   testCommitRenameFailure.store(false);
   testSourceStageRenameFailure.store(false);
   testCreateDestinationBeforeNoReplace.store(false);
+  testCreateRestoreDestinationBeforeCommit.store(false);
   testRemoveFailurePath.clear();
   testCancelRemovePath.clear();
+  testSwapRemovePath.clear();
+  testSwapRemoveTarget.clear();
+  testSwapRemoveBackup.clear();
+  testMetadataRemoveFailurePath.clear();
 }
 
 void BackendSafetyTest::transferRejectsUnsafePaths_data() {
@@ -261,6 +294,42 @@ void BackendSafetyTest::noReplaceRacePreservesWinner() {
   QVERIFY(result.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
   QCOMPARE(readFile(destination), QByteArray("race-winner"));
   QCOMPARE(readFile(source), QByteArray("source-data"));
+}
+
+void BackendSafetyTest::overwriteRacePreservesWinnerAndRecovery_data() {
+  QTest::addColumn<QString>("operation");
+  QTest::newRow("copy") << QStringLiteral("copy");
+  QTest::newRow("move") << QStringLiteral("move");
+}
+
+void BackendSafetyTest::overwriteRacePreservesWinnerAndRecovery() {
+  QFETCH(QString, operation);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  const QString destination = temp.filePath(QStringLiteral("destination"));
+  QVERIFY(writeFile(source, "new"));
+  QVERIFY(writeFile(destination, "old"));
+
+  testCreateDestinationBeforeNoReplace.store(true);
+  FileOperations operations;
+  const OperationResult result = runOperation(operations, [&] {
+    if (operation == QLatin1String("copy"))
+      operations.copy(source, destination, true);
+    else
+      operations.move(source, destination, true);
+  });
+
+  QVERIFY(!result.finished);
+  QCOMPARE(readFile(destination), QByteArray("race-winner"));
+  const QStringList backups = QDir(temp.path()).entryList(
+      {QStringLiteral("destination.omafiles-backup-*")}, QDir::Files);
+  const QStringList stages = QDir(temp.path()).entryList(
+      {QStringLiteral("destination.omafiles-stage-*")}, QDir::Files);
+  QCOMPARE(backups.size(), 1);
+  QCOMPARE(stages.size(), 1);
+  QCOMPARE(readFile(temp.filePath(backups.first())), QByteArray("old"));
+  QCOMPARE(readFile(temp.filePath(stages.first())), QByteArray("new"));
 }
 
 void BackendSafetyTest::overwriteCommitFailurePreservesDestination_data() {
@@ -521,6 +590,220 @@ void BackendSafetyTest::crossFilesystemMoveSourceStagingFailureRollsBack() {
            QStringList{QStringLiteral("source")});
   QCOMPARE(QDir(destinationRoot.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
            QStringList{QStringLiteral("destination")});
+}
+
+void BackendSafetyTest::removeTreeSwapNeverFollowsSymlink() {
+  QTemporaryDir temp;
+  QTemporaryDir outside;
+  QVERIFY(temp.isValid());
+  QVERIFY(outside.isValid());
+  const QString root = temp.filePath(QStringLiteral("root"));
+  const QString child = QDir(root).filePath(QStringLiteral("child"));
+  const QString backup = temp.filePath(QStringLiteral("inspected-child"));
+  const QString sentinel = outside.filePath(QStringLiteral("sentinel"));
+  QVERIFY(QDir().mkpath(child));
+  QVERIFY(writeFile(QDir(child).filePath(QStringLiteral("inside")), "inside"));
+  QVERIFY(writeFile(sentinel, "outside"));
+
+  testSwapRemovePath = child;
+  testSwapRemoveTarget = outside.path();
+  testSwapRemoveBackup = backup;
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.remove(root); });
+
+  QVERIFY(!result.finished);
+  QCOMPARE(readFile(sentinel), QByteArray("outside"));
+  QCOMPARE(readFile(QDir(backup).filePath(QStringLiteral("inside"))),
+           QByteArray("inside"));
+  QVERIFY(QFileInfo(child).isSymLink());
+}
+
+void BackendSafetyTest::removeTreeDeletesSymlinkLeaf() {
+  QTemporaryDir temp;
+  QTemporaryDir outside;
+  QVERIFY(temp.isValid());
+  QVERIFY(outside.isValid());
+  const QString sentinel = outside.filePath(QStringLiteral("sentinel"));
+  const QString link = temp.filePath(QStringLiteral("directory-link"));
+  QVERIFY(writeFile(sentinel, "outside"));
+  QCOMPARE(::symlink(QFile::encodeName(outside.path()).constData(),
+                     QFile::encodeName(link).constData()),
+           0);
+
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.remove(link); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(!entryExists(link));
+  QCOMPARE(readFile(sentinel), QByteArray("outside"));
+}
+
+void BackendSafetyTest::removeTreeSupportsSymlinkedParent() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString realParent = temp.filePath(QStringLiteral("real-parent"));
+  const QString linkedParent = temp.filePath(QStringLiteral("linked-parent"));
+  QVERIFY(QDir().mkpath(realParent));
+  QVERIFY(QFile::link(realParent, linkedParent));
+  const QString child = QDir(realParent).filePath(QStringLiteral("child"));
+  QVERIFY(writeFile(child, "data"));
+
+  FileOperations operations;
+  const OperationResult result = runOperation(
+      operations, [&] { operations.remove(QDir(linkedParent).filePath(QStringLiteral("child"))); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(!entryExists(child));
+  QVERIFY(QFileInfo(linkedParent).isSymLink());
+}
+
+void BackendSafetyTest::trashReportsExactPayloadPath() {
+  QTemporaryDir data;
+  QVERIFY(data.isValid());
+  ScopedEnvironment xdg("XDG_DATA_HOME", data.path().toUtf8());
+  const QString source = data.filePath(QStringLiteral("source"));
+  QVERIFY(writeFile(source, "payload"));
+
+  FileOperations operations;
+  QSignalSpy detail(&operations, &FileOperations::operationDetail);
+  QStringList sequence;
+  connect(&operations, &FileOperations::operationDetail, &operations,
+          [&sequence] { sequence << QStringLiteral("detail"); });
+  connect(&operations, &FileOperations::finished, &operations,
+          [&sequence] { sequence << QStringLiteral("finished"); });
+  const OperationResult result =
+      runOperation(operations, [&] { operations.trash(source); });
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QCOMPARE(detail.size(), 1);
+  QCOMPARE(detail.first().at(0).toString(), QStringLiteral("trash"));
+  QCOMPARE(detail.first().at(1).toString(), source);
+  QCOMPARE(detail.first().at(2).toString(), QStringLiteral("payloadPath"));
+  QCOMPARE(sequence,
+           QStringList({QStringLiteral("detail"), QStringLiteral("finished")}));
+  const QString payload = detail.first().at(3).toString();
+  QVERIFY(entryExists(payload));
+  const QVariantList trashEntries = operations.trashInfo();
+  QCOMPARE(trashEntries.size(), 1);
+  QCOMPARE(trashEntries.first().toMap().value(QStringLiteral("payloadPath")).toString(),
+           payload);
+}
+
+void BackendSafetyTest::restoreRacePreservesWinnerAndPayload_data() {
+  QTest::addColumn<bool>("exact");
+  QTest::addColumn<bool>("crossFilesystem");
+  QTest::newRow("restore-same") << true << false;
+  QTest::newRow("restore-by-path-same") << false << false;
+  QTest::newRow("restore-cross") << true << true;
+  QTest::newRow("restore-by-path-cross") << false << true;
+}
+
+void BackendSafetyTest::restoreRacePreservesWinnerAndPayload() {
+  QFETCH(bool, exact);
+  QFETCH(bool, crossFilesystem);
+  struct stat tempStat {};
+  struct stat shmStat {};
+  if (crossFilesystem &&
+      (::stat(QFile::encodeName(QDir::tempPath()).constData(), &tempStat) != 0 ||
+       ::stat("/dev/shm", &shmStat) != 0 || tempStat.st_dev == shmStat.st_dev))
+    QSKIP("No writable second filesystem is available at /dev/shm");
+
+  QTemporaryDir destinationRoot;
+  QTemporaryDir sameTrashRoot;
+  QTemporaryDir crossTrashRoot(QStringLiteral("/dev/shm/omafiles-restore-XXXXXX"));
+  QTemporaryDir *trashRoot = crossFilesystem ? &crossTrashRoot : &sameTrashRoot;
+  if (!destinationRoot.isValid() || !trashRoot->isValid())
+    QSKIP("Could not create restore fixtures");
+  ScopedEnvironment xdg("XDG_DATA_HOME", trashRoot->path().toUtf8());
+  const QString destination =
+      destinationRoot.filePath(QStringLiteral("restored/item"));
+  QString payload;
+  QString metadata;
+  QVERIFY(createTrashItem(trashRoot->path(), QStringLiteral("item"), destination,
+                          "trashed", payload, metadata));
+
+  if (crossFilesystem)
+    testCreateRestoreDestinationBeforeCommit.store(true);
+  else
+    testCreateDestinationBeforeNoReplace.store(true);
+  FileOperations operations;
+  const OperationResult result = runOperation(operations, [&] {
+    if (exact)
+      operations.restore(payload);
+    else
+      operations.restoreByOrigPath(destination);
+  });
+
+  QVERIFY(!result.finished);
+  QCOMPARE(readFile(destination), QByteArray("race-winner"));
+  QCOMPARE(readFile(payload), QByteArray("trashed"));
+  QVERIFY(entryExists(metadata));
+  const QStringList stages = QDir(QFileInfo(destination).absolutePath()).entryList(
+      {QStringLiteral("item.omafiles-stage-*")}, QDir::Files);
+  QCOMPARE(stages.size(), crossFilesystem ? 1 : 0);
+  if (crossFilesystem)
+    QCOMPARE(readFile(QDir(QFileInfo(destination).absolutePath()).filePath(stages.first())),
+             QByteArray("trashed"));
+}
+
+void BackendSafetyTest::restoreCleanupFailureWarnsThenFinishes_data() {
+  QTest::addColumn<QString>("cleanup");
+  QTest::addColumn<bool>("exact");
+  QTest::newRow("restore-metadata") << QStringLiteral("metadata") << true;
+  QTest::newRow("restore-by-path-metadata") << QStringLiteral("metadata") << false;
+  QTest::newRow("restore-cross-filesystem-payload") << QStringLiteral("payload") << true;
+  QTest::newRow("restore-by-path-cross-filesystem-payload") << QStringLiteral("payload") << false;
+}
+
+void BackendSafetyTest::restoreCleanupFailureWarnsThenFinishes() {
+  QFETCH(QString, cleanup);
+  QFETCH(bool, exact);
+  const bool crossFilesystem = cleanup == QLatin1String("payload");
+  struct stat tempStat {};
+  struct stat shmStat {};
+  if (crossFilesystem &&
+      (::stat(QFile::encodeName(QDir::tempPath()).constData(), &tempStat) != 0 ||
+       ::stat("/dev/shm", &shmStat) != 0 || tempStat.st_dev == shmStat.st_dev))
+    QSKIP("No writable second filesystem is available at /dev/shm");
+
+  QTemporaryDir destinationRoot;
+  QTemporaryDir sameTrashRoot;
+  QTemporaryDir crossTrashRoot(QStringLiteral("/dev/shm/omafiles-restore-XXXXXX"));
+  QTemporaryDir *trashRoot = crossFilesystem ? &crossTrashRoot : &sameTrashRoot;
+  if (!destinationRoot.isValid() || !trashRoot->isValid())
+    QSKIP("Could not create restore fixtures");
+  ScopedEnvironment xdg("XDG_DATA_HOME", trashRoot->path().toUtf8());
+  const QString destination = destinationRoot.filePath(QStringLiteral("item"));
+  QString payload;
+  QString metadata;
+  QVERIFY(createTrashItem(trashRoot->path(), QStringLiteral("item"), destination,
+                          "trashed", payload, metadata));
+  if (crossFilesystem)
+    testRemoveFailurePath = payload;
+  else
+    testMetadataRemoveFailurePath = metadata;
+
+  FileOperations operations;
+  QStringList sequence;
+  connect(&operations, &FileOperations::warning, &operations,
+          [&sequence] { sequence << QStringLiteral("warning"); });
+  connect(&operations, &FileOperations::finished, &operations,
+          [&sequence] { sequence << QStringLiteral("finished"); });
+  connect(&operations, &FileOperations::error, &operations,
+          [&sequence] { sequence << QStringLiteral("error"); });
+  const OperationResult result = runOperation(operations, [&] {
+    if (exact)
+      operations.restore(payload);
+    else
+      operations.restoreByOrigPath(destination);
+  });
+
+  QVERIFY2(result.finished, qPrintable(result.error));
+  QVERIFY(!result.warning.isEmpty());
+  QCOMPARE(sequence, QStringList({QStringLiteral("warning"),
+                                  QStringLiteral("finished")}));
+  QCOMPARE(readFile(destination), QByteArray("trashed"));
+  QVERIFY(entryExists(metadata));
+  QCOMPARE(entryExists(payload), crossFilesystem);
 }
 
 void BackendSafetyTest::trashRejectsSymlinkedComponents_data() {

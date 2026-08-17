@@ -15,6 +15,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <dirent.h>
 #include <cstring>
 #include <fcntl.h>
 #include <linux/fs.h>
@@ -34,8 +35,13 @@ inline std::atomic<qint64> testCancelCopyAfter{-1};
 inline std::atomic<bool> testCommitRenameFailure{false};
 inline std::atomic<bool> testSourceStageRenameFailure{false};
 inline std::atomic<bool> testCreateDestinationBeforeNoReplace{false};
+inline std::atomic<bool> testCreateRestoreDestinationBeforeCommit{false};
 inline QString testRemoveFailurePath;
 inline QString testCancelRemovePath;
+inline QString testSwapRemovePath;
+inline QString testSwapRemoveTarget;
+inline QString testSwapRemoveBackup;
+inline QString testMetadataRemoveFailurePath;
 #endif
 
 // Does a directory ENTRY exist at `path`? (lstat, not stat.) Unlike
@@ -180,6 +186,38 @@ inline bool renameEntryNoReplace(const QString &source,
 #endif
 }
 
+inline void createRaceWinnerForTest(const QString &destination,
+                                    std::atomic<bool> &hook) {
+#ifdef OMAFILES_UNIT_TEST
+  if (hook.exchange(false)) {
+    QFile injected(destination);
+    if (injected.open(QIODevice::WriteOnly)) {
+      injected.write("race-winner");
+      injected.close();
+    }
+  }
+#else
+  Q_UNUSED(destination)
+  Q_UNUSED(hook)
+#endif
+}
+
+inline void injectDestinationRaceForTest(const QString &destination) {
+#ifdef OMAFILES_UNIT_TEST
+  createRaceWinnerForTest(destination, testCreateDestinationBeforeNoReplace);
+#else
+  Q_UNUSED(destination)
+#endif
+}
+
+inline void injectRestoreCommitRaceForTest(const QString &destination) {
+#ifdef OMAFILES_UNIT_TEST
+  createRaceWinnerForTest(destination, testCreateRestoreDestinationBeforeCommit);
+#else
+  Q_UNUSED(destination)
+#endif
+}
+
 // Replace destination with an already complete sibling stage. If destination
 // exists, keep it as a sibling backup until the stage rename succeeds.
 inline CommitOutcome commitStagedReplacement(const QString &stage,
@@ -197,34 +235,26 @@ inline CommitOutcome commitStagedReplacement(const QString &stage,
       return {false, false, QString::fromLocal8Bit(strerror(errno))};
   }
 
-#ifdef OMAFILES_UNIT_TEST
-  if (!overwrite && testCreateDestinationBeforeNoReplace.exchange(false)) {
-    QFile injected(destination);
-    if (injected.open(QIODevice::WriteOnly)) {
-      injected.write("race-winner");
-      injected.close();
-    }
-  }
-#endif
+  injectDestinationRaceForTest(destination);
 
   bool committed = false;
 #ifdef OMAFILES_UNIT_TEST
   if (testCommitRenameFailure.exchange(false)) {
     errno = EIO;
   } else {
-    committed = overwrite ? renameEntry(stage, destination)
-                          : renameEntryNoReplace(stage, destination);
+    committed = renameEntryNoReplace(stage, destination);
   }
 #else
-  committed = overwrite ? renameEntry(stage, destination)
-                        : renameEntryNoReplace(stage, destination);
+  committed = renameEntryNoReplace(stage, destination);
 #endif
   if (!committed) {
     const QString commitError = QString::fromLocal8Bit(strerror(errno));
-    if (!backup.isEmpty() && !renameEntry(backup, destination)) {
+    if (!backup.isEmpty() && !renameEntryNoReplace(backup, destination)) {
       return {false, false,
-              QStringLiteral("commit failed (%1); destination rollback failed (%2)")
-                  .arg(commitError, QString::fromLocal8Bit(strerror(errno)))};
+              QStringLiteral("commit failed (%1); destination rollback failed (%2); stage retained at %3; old destination retained at %4")
+                  .arg(commitError, QString::fromLocal8Bit(strerror(errno)), stage,
+                       backup),
+              backup};
     }
     return {false, false, QStringLiteral("commit failed: %1").arg(commitError)};
   }
@@ -405,53 +435,167 @@ inline bool copyTree(const QString &src, const QString &dst, qint64 &copied,
   return copyFile(src, dst, copied, cb, cancelled, err);
 }
 
-// Recursive delete, cancelable. Manual recursion (instead of
-// QDir::removeRecursively) to be able to check `cancelled` between entries.
-// A symlink to a folder is deleted as a link (QFile::remove), it is not entered.
-inline bool removeTree(const QString &path, const std::atomic<bool> &cancelled,
-                QString &err) {
-#ifdef OMAFILES_UNIT_TEST
-  const auto matchesTestPath = [&path](const QString &configured) {
-    if (configured.isEmpty())
+struct ScopedFd {
+  explicit ScopedFd(int descriptor = -1) : fd(descriptor) {}
+  ~ScopedFd() {
+    if (fd >= 0)
+      ::close(fd);
+  }
+  ScopedFd(const ScopedFd &) = delete;
+  ScopedFd &operator=(const ScopedFd &) = delete;
+  int fd = -1;
+};
+
+inline bool openDirectoryPathNoFollow(const QString &path, ScopedFd &result,
+                                      QString &err) {
+  QString absolute = QFileInfo(path).canonicalFilePath();
+  if (absolute.isEmpty())
+    absolute = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+  ScopedFd current(::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+  if (current.fd < 0) {
+    err = QStringLiteral("cannot open /: %1")
+              .arg(QString::fromLocal8Bit(strerror(errno)));
+    return false;
+  }
+  for (const QString &component : pathComponents(absolute)) {
+    const int next = ::openat(current.fd, QFile::encodeName(component).constData(),
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (next < 0) {
+      err = QStringLiteral("cannot open directory %1: %2")
+                .arg(path, QString::fromLocal8Bit(strerror(errno)));
       return false;
-    const QFileInfo actual(QFileInfo(path).absoluteFilePath());
-    const QFileInfo expected(QFileInfo(configured).absoluteFilePath());
-    return samePathComponents(actual.absoluteFilePath(), expected.absoluteFilePath()) ||
-           (samePathComponents(actual.absolutePath(), expected.absolutePath()) &&
-            actual.fileName().startsWith(QLatin1Char('.') + expected.fileName() +
-                                         QStringLiteral(".omafiles-recovery-")));
-  };
-  if (matchesTestPath(testRemoveFailurePath)) {
+    }
+    ::close(current.fd);
+    current.fd = next;
+  }
+  result.fd = current.fd;
+  current.fd = -1;
+  return true;
+}
+
+#ifdef OMAFILES_UNIT_TEST
+inline bool matchesRemoveTestPath(const QString &path,
+                                  const QString &configured) {
+  if (configured.isEmpty())
+    return false;
+  const QFileInfo actual(QFileInfo(path).absoluteFilePath());
+  const QFileInfo expected(QFileInfo(configured).absoluteFilePath());
+  return samePathComponents(actual.absoluteFilePath(), expected.absoluteFilePath()) ||
+         (samePathComponents(actual.absolutePath(), expected.absolutePath()) &&
+          actual.fileName().startsWith(QLatin1Char('.') + expected.fileName() +
+                                       QStringLiteral(".omafiles-recovery-")));
+}
+#endif
+
+inline bool removeTreeEntryAt(int parentFd, const QByteArray &name,
+                              const QString &displayPath,
+                              const std::atomic<bool> &cancelled, QString &err) {
+#ifdef OMAFILES_UNIT_TEST
+  if (matchesRemoveTestPath(displayPath, testRemoveFailurePath)) {
     err = QStringLiteral("forced remove failure");
     return false;
   }
-  if (matchesTestPath(testCancelRemovePath))
+  if (matchesRemoveTestPath(displayPath, testCancelRemovePath))
     const_cast<std::atomic<bool> &>(cancelled).store(true);
 #endif
   if (cancelled.load()) {
     err = QStringLiteral("cancelled");
     return false;
   }
-  QFileInfo fi(path);
-  if (fi.isDir() && !fi.isSymLink()) {
-    const QFileInfoList entries =
-        QDir(path).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot |
-                                 QDir::Hidden | QDir::System);
-    for (const QFileInfo &e : entries) {
-      if (!removeTree(e.absoluteFilePath(), cancelled, err))
-        return false;
-    }
-    if (!QDir().rmdir(path)) {
-      err = QStringLiteral("cannot remove %1").arg(path);
-      return false;
-    }
-    return true;
-  }
-  if (!QFile::remove(path)) {
-    err = QStringLiteral("cannot remove %1").arg(path);
+
+  struct stat st {};
+  if (::fstatat(parentFd, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
+    err = QStringLiteral("cannot inspect %1: %2")
+              .arg(displayPath, QString::fromLocal8Bit(strerror(errno)));
     return false;
   }
-  return true;
+
+#ifdef OMAFILES_UNIT_TEST
+  if (S_ISDIR(st.st_mode) && !testSwapRemovePath.isEmpty() &&
+      samePathComponents(QFileInfo(displayPath).absoluteFilePath(),
+                         QFileInfo(testSwapRemovePath).absoluteFilePath())) {
+    const QByteArray backup = QFile::encodeName(testSwapRemoveBackup);
+    const QByteArray target = QFile::encodeName(testSwapRemoveTarget);
+    if (::renameat(parentFd, name.constData(), AT_FDCWD, backup.constData()) != 0 ||
+        ::symlinkat(target.constData(), parentFd, name.constData()) != 0) {
+      err = QStringLiteral("forced remove swap failed: %1")
+                .arg(QString::fromLocal8Bit(strerror(errno)));
+      return false;
+    }
+    testSwapRemovePath.clear();
+  }
+#endif
+
+  if (!S_ISDIR(st.st_mode)) {
+    if (::unlinkat(parentFd, name.constData(), 0) == 0)
+      return true;
+    err = QStringLiteral("cannot remove %1: %2")
+              .arg(displayPath, QString::fromLocal8Bit(strerror(errno)));
+    return false;
+  }
+
+  ScopedFd directory(::openat(parentFd, name.constData(),
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+  if (directory.fd < 0) {
+    err = QStringLiteral("cannot open directory %1: %2")
+              .arg(displayPath, QString::fromLocal8Bit(strerror(errno)));
+    return false;
+  }
+  DIR *entries = ::fdopendir(::dup(directory.fd));
+  if (!entries) {
+    err = QStringLiteral("cannot list directory %1: %2")
+              .arg(displayPath, QString::fromLocal8Bit(strerror(errno)));
+    return false;
+  }
+  for (;;) {
+    if (cancelled.load()) {
+      ::closedir(entries);
+      err = QStringLiteral("cancelled");
+      return false;
+    }
+    errno = 0;
+    dirent *entry = ::readdir(entries);
+    if (!entry)
+      break;
+    const QByteArray childName(entry->d_name);
+    if (childName == "." || childName == "..")
+      continue;
+    const QString childPath =
+        QDir(displayPath).filePath(QFile::decodeName(childName));
+    if (!removeTreeEntryAt(directory.fd, childName, childPath, cancelled, err)) {
+      ::closedir(entries);
+      return false;
+    }
+  }
+  const int listError = errno;
+  ::closedir(entries);
+  if (listError != 0) {
+    err = QStringLiteral("cannot list directory %1: %2")
+              .arg(displayPath, QString::fromLocal8Bit(strerror(listError)));
+    return false;
+  }
+  if (::unlinkat(parentFd, name.constData(), AT_REMOVEDIR) == 0)
+    return true;
+  err = QStringLiteral("cannot remove directory %1: %2")
+            .arg(displayPath, QString::fromLocal8Bit(strerror(errno)));
+  return false;
+}
+
+// Linux descriptor-relative recursive delete. Every directory component and
+// child directory is opened with O_NOFOLLOW, and entries are inspected and
+// removed relative to an already-open parent descriptor.
+inline bool removeTree(const QString &path, const std::atomic<bool> &cancelled,
+                       QString &err) {
+  const QFileInfo entry(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+  if (entry.fileName().isEmpty()) {
+    err = QStringLiteral("refusing to remove filesystem root");
+    return false;
+  }
+  ScopedFd parent;
+  if (!openDirectoryPathNoFollow(entry.absolutePath(), parent, err))
+    return false;
+  return removeTreeEntryAt(parent.fd, QFile::encodeName(entry.fileName()),
+                           entry.absoluteFilePath(), cancelled, err);
 }
 
 // "Forced" delete for the cancellation cleanup: it does NOT check the
