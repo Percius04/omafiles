@@ -24,13 +24,6 @@ QtObject {
   // nothing to offer over a files-only selection).
   property bool chmodHasDir: false
   property bool chmodRecursive: false
-  // Legacy name-keyed view retained for dialog compatibility. Execution and
-  // history use chmodRecords, whose absolute paths cannot drift after navigation.
-  // { "<name>": "<previous octal mode>" }, captured by PropertiesLoader
-  // on opening the dialog -- so it can be undone. It restores only the mode of
-  // the selected item itself, NOT that of its content if applied with -R --
-  // capturing the whole tree before changing anything would be much more expensive
-  // (recursive find+stat) for what the real gap asked (chmod was,
-  // together with bulk rename, the only risky action without any undo).
-  property var chmodOriginalModes: ({})
+  // Undo restores each selected item's own mode. Recursive descendant modes are
+  // not captured because walking and storing the full tree would be unbounded.
 }

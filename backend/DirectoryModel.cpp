@@ -139,7 +139,6 @@ int gatherOne(const QByteArray &p, bool showHidden,
     e.name = QFile::decodeName(n);
     if (includePath)
       e.path = QFileInfo(QFile::decodeName(full)).absoluteFilePath();
-    e.isSymlink = isLink;
     e.link = isLink ? (followed ? QStringLiteral("valid")
                                 : QStringLiteral("broken"))
                     : QString();

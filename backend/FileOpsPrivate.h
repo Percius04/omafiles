@@ -16,7 +16,10 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
+#include <linux/fs.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 namespace FileOpsPrivate {
@@ -30,6 +33,7 @@ inline std::atomic<qint64> testCopyFailureAfter{-1};
 inline std::atomic<qint64> testCancelCopyAfter{-1};
 inline std::atomic<bool> testCommitRenameFailure{false};
 inline std::atomic<bool> testSourceStageRenameFailure{false};
+inline std::atomic<bool> testCreateDestinationBeforeNoReplace{false};
 inline QString testRemoveFailurePath;
 inline QString testCancelRemovePath;
 #endif
@@ -135,15 +139,8 @@ inline QString uniqueSiblingPath(const QString &destination,
 inline QString uniqueHiddenSiblingPath(const QString &entry,
                                        const QString &role) {
   const QFileInfo info(entry);
-  const QString prefix = QLatin1Char('.') + info.fileName() +
-                         QStringLiteral(".omafiles-") + role + QLatin1Char('-');
-  QString candidate;
-  do {
-    candidate = QDir(info.absolutePath())
-                    .filePath(prefix + QUuid::createUuid().toString(
-                                           QUuid::WithoutBraces));
-  } while (entryExists(candidate));
-  return candidate;
+  return uniqueSiblingPath(
+      QDir(info.absolutePath()).filePath(QLatin1Char('.') + info.fileName()), role);
 }
 
 inline bool removeTree(const QString &path,
@@ -166,6 +163,23 @@ inline bool renameEntry(const QString &source, const QString &destination) {
                   QFile::encodeName(destination).constData()) == 0;
 }
 
+// Linux is the supported runtime. renameat2 closes the no-overwrite race that
+// an entryExists()+rename() pair cannot close.
+inline bool renameEntryNoReplace(const QString &source,
+                                 const QString &destination) {
+#ifdef SYS_renameat2
+  return ::syscall(SYS_renameat2, AT_FDCWD,
+                   QFile::encodeName(source).constData(), AT_FDCWD,
+                   QFile::encodeName(destination).constData(),
+                   RENAME_NOREPLACE) == 0;
+#else
+  Q_UNUSED(source)
+  Q_UNUSED(destination)
+  errno = ENOTSUP;
+  return false;
+#endif
+}
+
 // Replace destination with an already complete sibling stage. If destination
 // exists, keep it as a sibling backup until the stage rename succeeds.
 inline CommitOutcome commitStagedReplacement(const QString &stage,
@@ -183,14 +197,27 @@ inline CommitOutcome commitStagedReplacement(const QString &stage,
       return {false, false, QString::fromLocal8Bit(strerror(errno))};
   }
 
+#ifdef OMAFILES_UNIT_TEST
+  if (!overwrite && testCreateDestinationBeforeNoReplace.exchange(false)) {
+    QFile injected(destination);
+    if (injected.open(QIODevice::WriteOnly)) {
+      injected.write("race-winner");
+      injected.close();
+    }
+  }
+#endif
+
   bool committed = false;
 #ifdef OMAFILES_UNIT_TEST
-  if (!testCommitRenameFailure.exchange(false))
-    committed = renameEntry(stage, destination);
-  else
+  if (testCommitRenameFailure.exchange(false)) {
     errno = EIO;
+  } else {
+    committed = overwrite ? renameEntry(stage, destination)
+                          : renameEntryNoReplace(stage, destination);
+  }
 #else
-  committed = renameEntry(stage, destination);
+  committed = overwrite ? renameEntry(stage, destination)
+                        : renameEntryNoReplace(stage, destination);
 #endif
   if (!committed) {
     const QString commitError = QString::fromLocal8Bit(strerror(errno));

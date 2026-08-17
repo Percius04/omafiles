@@ -11,6 +11,8 @@ public:
   GMountOperation *currentOp = nullptr;
 
   static void onAskPassword(GMountOperation *op, const gchar *message, const gchar *defaultUser, const gchar *defaultDomain, GAskPasswordFlags flags, gpointer userData) {
+    Q_UNUSED(defaultDomain)
+    Q_UNUSED(flags)
     auto *self = static_cast<NetworkResolver::Private *>(userData);
     self->currentOp = op; // Store the active operation waiting for credentials
     emit self->q->authRequested(QString::fromUtf8(message), QString::fromUtf8(defaultUser));

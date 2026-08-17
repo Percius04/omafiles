@@ -128,6 +128,8 @@ private slots:
   void cleanup();
   void transferRejectsUnsafePaths_data();
   void transferRejectsUnsafePaths();
+  void noReplaceRacePreservesWinner_data();
+  void noReplaceRacePreservesWinner();
   void overwriteCommitFailurePreservesDestination_data();
   void overwriteCommitFailurePreservesDestination();
   void copyFailurePreservesDestination_data();
@@ -167,6 +169,7 @@ void BackendSafetyTest::cleanup() {
   testCancelCopyAfter.store(-1);
   testCommitRenameFailure.store(false);
   testSourceStageRenameFailure.store(false);
+  testCreateDestinationBeforeNoReplace.store(false);
   testRemoveFailurePath.clear();
   testCancelRemovePath.clear();
 }
@@ -229,6 +232,35 @@ void BackendSafetyTest::transferRejectsUnsafePaths() {
            QByteArray("keep"));
   if (alias == QLatin1String("descendant"))
     QVERIFY(!entryExists(destination));
+}
+
+void BackendSafetyTest::noReplaceRacePreservesWinner_data() {
+  QTest::addColumn<QString>("operation");
+  QTest::newRow("copy") << QStringLiteral("copy");
+  QTest::newRow("move") << QStringLiteral("move");
+}
+
+void BackendSafetyTest::noReplaceRacePreservesWinner() {
+  QFETCH(QString, operation);
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString source = temp.filePath(QStringLiteral("source"));
+  const QString destination = temp.filePath(QStringLiteral("destination"));
+  QVERIFY(writeFile(source, "source-data"));
+
+  testCreateDestinationBeforeNoReplace.store(true);
+  FileOperations operations;
+  const OperationResult result = runOperation(operations, [&] {
+    if (operation == QLatin1String("copy"))
+      operations.copy(source, destination, false);
+    else
+      operations.move(source, destination, false);
+  });
+
+  QVERIFY(!result.finished);
+  QVERIFY(result.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
+  QCOMPARE(readFile(destination), QByteArray("race-winner"));
+  QCOMPARE(readFile(source), QByteArray("source-data"));
 }
 
 void BackendSafetyTest::overwriteCommitFailurePreservesDestination_data() {

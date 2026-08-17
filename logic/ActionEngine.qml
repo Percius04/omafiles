@@ -145,7 +145,7 @@ Item {
   property real _progBase: 0    // bytes already completed from previous items
   property real _lastItemTotal: 0 // total of the current item (last progress)
 
-  function startCopyProgress(sourcePaths, destPaths) {
+  function startCopyProgress(sourcePaths) {
     _progTotal = Backend.FileOperations.totalSize(sourcePaths)
     _progBase = 0
     _lastItemTotal = 0
@@ -305,8 +305,7 @@ Item {
     ActionState.actionLabel = busyLabel || ""
     ActionState.actionBusy = !!busyLabel
     if (busyLabel && (kind === "copy" || kind === "move"))
-      startCopyProgress(pairs.map(function (p) { return p.src }),
-                        pairs.map(function (p) { return p.dest }))
+      startCopyProgress(pairs.map(function (p) { return p.src }))
     _batchNext()
     return true
   }

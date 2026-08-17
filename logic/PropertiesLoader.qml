@@ -36,10 +36,6 @@ Item {
     var allSame = valid.length > 0 && valid.every(function (m) { return m === valid[0] })
     ChmodState.chmodMixed = !allSame
     ChmodState.chmodMode = allSame ? valid[0] : ""
-    var orig = {}
-    for (var i = 0; i < ChmodState.chmodNames.length && i < modes.length; i++)
-      if (modes[i].length > 0) orig[ChmodState.chmodNames[i]] = modes[i]
-    ChmodState.chmodOriginalModes = orig
     ChmodState.chmodRecords = entries.map(function (e, i) {
       return { name: e.name, path: paths[i], originalMode: modes[i] || "" }
     })

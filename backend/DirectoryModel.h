@@ -84,7 +84,6 @@ public:
     QString type; // "dir" | "file"
     QString link; // "" | "valid" | "broken"
     bool isDir = false;
-    bool isSymlink = false;
     qint64 size = 0;
     qint64 mtime = 0;
   };

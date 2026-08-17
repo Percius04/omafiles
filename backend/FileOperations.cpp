@@ -113,11 +113,11 @@ void FileOperations::rename(const QString &path, const QString &newName) {
       return {false, QStringLiteral("source does not exist")};
     if (QFileInfo(dst).isDir())
       return {false, QStringLiteral("destination is a directory")};
-    if (entryExists(dst))
-      return {false, QStringLiteral("destination already exists")};
-    if (::rename(QFile::encodeName(path).constData(),
-                 QFile::encodeName(dst).constData()) != 0)
+    if (!renameEntryNoReplace(path, dst)) {
+      if (errno == EEXIST)
+        return {false, QStringLiteral("destination already exists")};
       return {false, QString::fromLocal8Bit(strerror(errno))};
+    }
     return {true, QString()};
   });
 }

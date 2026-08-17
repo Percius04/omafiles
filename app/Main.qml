@@ -29,34 +29,10 @@ ApplicationWindow {
   title: "Omafiles"
   color: Color.menu.background
 
-  function isValidatedPickerPayload(payload) {
-    if (!payload || payload.charAt(0) !== "{") return false
-    try {
-      var value = JSON.parse(payload)
-      var modes = ["open-file", "open-dir", "save-file", "save-files"]
-      var schema = ["files", "folder", "kind", "mode", "multiple", "requestId", "suggestedName"]
-      if (Object.keys(value).sort().join(",") !== schema.join(",")
-          || value.kind !== "picker"
-          || typeof value.folder !== "string" || value.folder.charAt(0) !== "/"
-          || value.folder.indexOf("\0") >= 0
-          || typeof value.requestId !== "string" || value.requestId.length === 0
-          || modes.indexOf(value.mode) < 0 || typeof value.multiple !== "boolean"
-          || typeof value.suggestedName !== "string" || !Array.isArray(value.files)) return false
-      if (value.mode === "save-files" && value.files.length === 0) return false
-      for (var i = 0; i < value.files.length; i++) {
-        var name = value.files[i]
-        if (typeof name !== "string" || !name || name === "." || name === ".."
-            || name.indexOf("/") >= 0 || name.indexOf("\0") >= 0) return false
-      }
-      return true
-    } catch (e) {
-      return false
-    }
-  }
-
+  // main.cpp validates the full picker schema before publishing this flag and
+  // before deciding socket routing. OmafilesContent validates again before use.
   readonly property bool initialPicker: typeof omafilesInitialIsPicker !== "undefined"
     && omafilesInitialIsPicker === true
-    && isValidatedPickerPayload(typeof omafilesInitialPayload !== "undefined" ? omafilesInitialPayload : "")
 
   HostAdapter {
     id: adapter
