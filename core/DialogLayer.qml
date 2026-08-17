@@ -239,14 +239,14 @@ Item {
     z: 10
     opened: ConflictState.newFileConflictOpen
     message: ConflictState.pendingNewFile
-      ? "\"" + ConflictState.pendingNewFile.name + "\" already exists here. Overwrite?"
+      ? "\"" + ConflictState.pendingNewFile.name + "\" already exists. A new file cannot replace it."
       : ""
-    confirmText: "Overwrite"
+    confirmText: "Close"
     cancelText: "Cancel"
     background: Color.menu.background
     foreground: Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFile()
-    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingNewFile(true)
+    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFile()
   }
 
   ConfirmDialog {
@@ -255,14 +255,14 @@ Item {
     z: 10
     opened: ConflictState.newFolderConflictOpen
     message: ConflictState.pendingNewFolder
-      ? "\"" + ConflictState.pendingNewFolder.name + "\" already exists here. Overwrite?"
+      ? "\"" + ConflictState.pendingNewFolder.name + "\" already exists. A new folder cannot replace it."
       : ""
-    confirmText: "Overwrite"
+    confirmText: "Close"
     cancelText: "Cancel"
     background: Color.menu.background
     foreground: Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFolder()
-    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingNewFolder(true)
+    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFolder()
   }
 
   ConfirmDialog {
@@ -271,9 +271,9 @@ Item {
     z: 10
     opened: ConflictState.extractConflictOpen
     message: ConflictState.extractConflictNames.length === 1
-      ? "\"" + ConflictState.extractConflictNames[0] + "\" already exists here and will be overwritten."
-      : ConflictState.extractConflictNames.length + " items already exist here and will be overwritten."
-    confirmText: "Overwrite"
+      ? "\"" + ConflictState.extractConflictNames[0] + "\" already exists and will be skipped. Extract the rest?"
+      : ConflictState.extractConflictNames.length + " items already exist and will be skipped. Extract the rest?"
+    confirmText: "Skip existing"
     cancelText: "Cancel"
     background: Color.menu.background
     foreground: Color.menu.text
@@ -286,13 +286,13 @@ Item {
     anchors.fill: parent
     z: 10
     opened: ConflictState.compressConflictOpen
-    message: ConflictState.pendingCompress ? "\"" + ConflictState.pendingCompress.archiveName + "\" already exists. Overwrite it?" : ""
-    confirmText: "Overwrite"
+    message: ConflictState.pendingCompress ? "\"" + ConflictState.pendingCompress.archiveName + "\" already exists. Compression cannot replace it." : ""
+    confirmText: "Close"
     cancelText: "Cancel"
     background: Color.menu.background
     foreground: Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingCompress()
-    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingCompress()
+    onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingCompress()
   }
 
   ConfirmDialog {
@@ -301,8 +301,8 @@ Item {
     z: 10
     opened: ConflictState.bulkRenameConflictOpen
     message: ConflictState.bulkRenameConflictCount === 1
-      ? "1 rename would collide with an existing name and will be skipped. Rename the rest?"
-      : ConflictState.bulkRenameConflictCount + " renames would collide with existing or duplicate names and will be skipped. Rename the rest?"
+      ? "1 rename has an existing or duplicate destination and will be skipped. Rename the eligible items?"
+      : ConflictState.bulkRenameConflictCount + " renames have existing or duplicate destinations and will be skipped. Rename the eligible items?"
     confirmText: "Continue"
     cancelText: "Cancel"
     background: Color.menu.background

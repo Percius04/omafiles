@@ -94,7 +94,8 @@ RestoreOutcome restorePayload(const QString &source, const QString &destination,
               {}};
     }
 
-    const QString stage = uniqueSiblingPath(destination, QStringLiteral("stage"));
+    const QString stage =
+        FileOpsPrivate::uniqueSiblingPath(destination, QStringLiteral("stage"));
     qint64 copiedBytes = 0;
     QString copyError;
     const auto noop = [](qint64) {};

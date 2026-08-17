@@ -22,8 +22,8 @@ Item {
   property bool pendingDeletePermanent: false
 
   // Simple stack of reversible actions: rename, new folder/file,
-  // delete (to trash), move (cut+paste/drag), bulk
-  // rename, chmod and link. Copy/compress are left out on purpose --
+  // delete (to trash), no-overwrite move (cut+paste/drag), bulk
+  // rename, chmod and link. Copy/compress and overwrite moves are left out --
   // undoing them is more ambiguous (delete the copy? what if it was already moved/edited?)
   // than losing by mistake something renamed/moved/deleted/with permissions
   // changed. undoStack/redoStack themselves live in state/UndoState.qml
@@ -219,7 +219,7 @@ Item {
     }
   }
 
-  // ---------- Native copy/move/trash/restore/remove/mkdir/emptyTrash ----------
+  // ---------- Native copy/move/trash/restore/remove/create/mkdir/emptyTrash ----------
   property bool nativeBusy: false
   property string _nativeKind: "copy"
   property var _batchQueue: []
@@ -262,6 +262,10 @@ Item {
 
   function runNativeRestorePayload(payloadPaths, busyLabel, onDone) {
     return _runNative("restoreExact", _toPairs(payloadPaths), busyLabel, false, onDone)
+  }
+
+  function runNativeCreateFile(path, busyLabel, onDone) {
+    return _runNative("createFile", [{ src: path }], busyLabel, false, onDone)
   }
 
   function runNativeMkdir(path, busyLabel, onDone) {
@@ -337,6 +341,8 @@ Item {
       Backend.FileOperations.restore(p.src)
     else if (_nativeKind === "move")
       Backend.FileOperations.move(p.src, p.dest, _batchOverwrite)
+    else if (_nativeKind === "createFile")
+      Backend.FileOperations.createFile(p.src)
     else if (_nativeKind === "mkdir")
       Backend.FileOperations.mkdir(p.src)
     else
@@ -445,7 +451,11 @@ Item {
   // --- ClipboardOps ---
 
   function _pushMoveUndo(pairs, overwrite) {
-    if (!pairs) return
+    if (!pairs || pairs.length === 0) return
+    if (overwrite === true) {
+      Backend.Notifier.notify("Move completed with overwrite. Undo is unavailable because replaced items are not retained.")
+      return
+    }
     // Keep the coordinator batch for progress, but make history atomic per item.
     pairs.forEach(function (p) {
       var pair = { src: p.src, dest: p.dest }
@@ -454,7 +464,7 @@ Item {
       pushUndo(label, function () {
         return runNativeMove([reversed], "", false)
       }, function () {
-        return runNativeMove([pair], "", overwrite)
+        return runNativeMove([pair], "", false)
       })
     })
   }
@@ -624,34 +634,27 @@ Item {
     EditModeState.creatingFile = true
   }
 
-  // commitNewFile()/commitNewFolder() (check whether something with
-  // that name already exists) live in logic/ConflictActions.qml, next to
-  // newFileCheckProc/newFolderCheckProc -- same pattern as commitRename/
-  // renameCheckProc. These two are the real execution (with overwrite=true
-  // if the user confirmed overwriting in the conflict dialog).
+  // Creation always uses the correlated native queue. The backend owns the
+  // final no-replace check, so a target that appears after the UI check wins.
   function runPendingNewFile(overwrite) {
     var pending = ConflictState.pendingNewFile
     ConflictState.pendingNewFile = null
     ConflictState.newFileConflictOpen = false
     if (!pending) return
+    if (overwrite === true) {
+      Backend.Notifier.notify("New file cancelled: an existing item cannot be overwritten")
+      return
+    }
     if (!Utils.validBasename(pending.name) || !Utils.basenamePathMatches(pending.name, pending.path)) {
       Backend.Notifier.notify("Invalid file name")
       return
     }
-    // overwrite: -rf first (it could be a whole folder, not just a
-    // file) and then touch -- consistent with the "-f" already used by
-    // paste/drop when overwriting (forces without going through the trash).
-    var newFileCmd = (overwrite ? "rm -rf -- " + Util.shellQuote(pending.path) + " && " : "")
-      + "touch -- " + Util.shellQuote(pending.path)
-    runAction(newFileCmd, undefined, function () {
-      // gio trash instead of rm: if the user already wrote something before
-      // undoing, it goes to the trash instead of being lost with no recovery.
-      // It does not try to restore whatever it may have overwritten -- same limit
-      // that paste/drop with overwrite already has.
+    runNativeCreateFile(pending.path, "", function (result) {
+      if (result.succeeded.length !== 1) return
       pushUndo("new file \"" + pending.name + "\"", function () {
-        return runAction("gio trash -- " + Util.shellQuote(pending.path))
+        return runNativeTrash([pending.path], "")
       }, function () {
-        return runAction(newFileCmd)
+        return runNativeCreateFile(pending.path, "")
       })
     })
   }
@@ -666,29 +669,18 @@ Item {
     ConflictState.pendingNewFolder = null
     ConflictState.newFolderConflictOpen = false
     if (!pending) return
+    if (overwrite === true) {
+      Backend.Notifier.notify("New folder cancelled: an existing item cannot be overwritten")
+      return
+    }
     if (!Utils.validBasename(pending.name) || !Utils.basenamePathMatches(pending.name, pending.path)) {
       Backend.Notifier.notify("Invalid file name")
       return
     }
-    if (overwrite) {
-      // Overwriting an already-existing name (rare case): it implies a
-      // destructive rm -rf, it stays in the tested shell action engine -- Phase
-      // 7 only wires the mkdir of the common case to the native backend.
-      var cmd = "rm -rf -- " + Util.shellQuote(pending.path) + " && mkdir -p -- " + Util.shellQuote(pending.path)
-      runAction(cmd, undefined, function () {
-        pushUndo("new folder \"" + pending.name + "\"", function () {
-          return runAction("rmdir -- " + Util.shellQuote(pending.path))
-        }, function () {
-          return runAction(cmd)
-        })
-      })
-      return
-    }
-    // Common case: mkdir is serialized by the same correlated native queue.
     runNativeMkdir(pending.path, "", function (result) {
-      if (!result.success) return
+      if (result.succeeded.length !== 1) return
       pushUndo("new folder \"" + pending.name + "\"", function () {
-        // rmdir (not rm -rf): if there is already something inside, it fails instead of deleting it.
+        // rmdir (not rm -rf): never remove a folder that gained content.
         return runAction("rmdir -- " + Util.shellQuote(pending.path))
       }, function () {
         return runNativeMkdir(pending.path, "")
@@ -709,6 +701,37 @@ Item {
     DialogsState.bulkRenameOpen = true
   }
 
+  function _planBulkRename(pairs) {
+    var candidates = pairs.filter(function (p) { return p.newName !== p.oldName })
+    var targetCounts = {}
+    candidates.forEach(function (p) {
+      targetCounts[p.newPath] = (targetCounts[p.newPath] || 0) + 1
+    })
+    var external = {}
+    Backend.FileOperations.existingPaths(candidates.map(function (p) { return p.newPath }))
+      .forEach(function (path) { external[path] = true })
+    var blockedCount = 0
+    var eligible = []
+    candidates.forEach(function (p) {
+      if (targetCounts[p.newPath] > 1 || external[p.newPath]) blockedCount++
+      else eligible.push(p)
+    })
+    return { eligible: eligible, blockedCount: blockedCount,
+             duplicateCount: candidates.filter(function (p) { return targetCounts[p.newPath] > 1 }).length }
+  }
+
+  function _pushBulkRenameUndo(pairs) {
+    pairs.forEach(function (p) {
+      var pair = { src: p.oldPath, dest: p.newPath }
+      var reversed = { src: p.newPath, dest: p.oldPath }
+      pushUndo("rename \"" + p.oldName + "\" to \"" + p.newName + "\"", function () {
+        return runNativeMove([reversed], "", false)
+      }, function () {
+        return runNativeMove([pair], "", false)
+      })
+    })
+  }
+
   function runPendingBulkRename() {
     var pairs = ConflictState.pendingBulkRename
     ConflictState.pendingBulkRename = null
@@ -722,25 +745,22 @@ Item {
       Backend.Notifier.notify("Bulk rename cancelled: invalid file name")
       return
     }
-    // Before, bulk rename was the only risky operation (along with chmod)
-    // without any undo -- a badly written {n}/{name}/{ext} pattern could
-    // rename dozens of files at once with no safety net.
-    var toRename = pairs.filter(function (p) { return p.newName !== p.oldName })
-    var cmds = toRename.map(function (p) {
-      return "mv -n -- " + Util.shellQuote(p.oldPath) + " " + Util.shellQuote(p.newPath)
+    // Recalculate immediately before launch. Every externally occupied or
+    // internally duplicated destination is excluded; the backend repeats the
+    // no-replace check for races after this point.
+    var plan = _planBulkRename(pairs)
+    if (plan.eligible.length === 0) return
+    var nativePairs = plan.eligible.map(function (p) {
+      return { src: p.oldPath, dest: p.newPath,
+               oldPath: p.oldPath, newPath: p.newPath,
+               oldName: p.oldName, newName: p.newName }
     })
-    if (cmds.length === 0) return
-    var bulkRenameCmd = chainCmds(cmds)
-    runAction(bulkRenameCmd, "Renaming " + cmds.length + " items…", function () {
-      var label = toRename.length === 1 ? "rename \"" + toRename[0].oldName + "\"" : "bulk rename " + toRename.length + " items"
-      pushUndo(label, function () {
-        var undoCmds = toRename.map(function (p) {
-          return "mv -n -- " + Util.shellQuote(p.newPath) + " " + Util.shellQuote(p.oldPath)
-        })
-        return runAction(chainCmds(undoCmds))
-      }, function () {
-        return runAction(bulkRenameCmd)
-      })
+    runNativeMove(nativePairs,
+                  "Renaming " + nativePairs.length + " items…", false,
+                  function (result) {
+      // One independent history entry per confirmed native success. Failed and
+      // unattempted pairs are absent from result.succeeded.
+      _pushBulkRenameUndo(result.succeeded)
     })
   }
 
@@ -942,25 +962,22 @@ Item {
     var archiveName = entries.length === 1
       ? entries[0].name.replace(/\/$/, "") + ".zip"
       : "selected-files.zip"
+    var finalPath = Utils.joinPath(NavState.currentPath, archiveName)
+    if (Backend.FileOperations.existingPaths([finalPath]).length > 0) {
+      Backend.Notifier.notify("Compression cancelled: \"" + archiveName + "\" already exists")
+      return
+    }
+    var stagePath = Backend.FileOperations.uniqueSiblingPath(finalPath, "archive-stage")
     var names = entries.map(function (e) { return Util.shellQuote(e.name) }).join(" ")
-    // "rm -f" before the zip: if the user confirms overwriting an
-    // already-existing archiveName, make it a real replacement -- without the rm,
-    // "zip -r" ADDS/updates entries inside the existing zip instead of
-    // replacing it, so confirming "overwrite" did not actually leave a
-    // clean zip with only what is selected now.
-    // "./" before the zip name + "--" before the list: a
-    // real file named, for example, "-rf" (a valid name in Linux) would be
-    // interpreted as zip flags instead of as a file name.
-    // zip does not accept "--" before the zip name itself (error "can't use
-    // -- before archive name"), hence the "./" instead.
-    var cmd = "cd -- " + Util.shellQuote(NavState.currentPath) + " && rm -f -- " + Util.shellQuote(archiveName)
-      + " && zip -r -q " + Util.shellQuote("./" + archiveName) + " -- " + names
-    ConflictState.pendingCompress = { archiveName: archiveName, cmd: cmd }
-    // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
-    if (Backend.FileOperations.existingPaths([Utils.joinPath(NavState.currentPath, archiveName)]).length > 0)
-      ConflictState.compressConflictOpen = true
-    else
-      actionEngine.runPendingCompress()
+    // zip writes only to the unique sibling. A failed zip removes its incomplete
+    // stage; a successful zip is committed through native move(no-overwrite).
+    var cmd = "cd -- " + Util.shellQuote(NavState.currentPath)
+      + " && zip -r -q " + Util.shellQuote(stagePath) + " -- " + names
+      + " || { st=$?; rm -f -- " + Util.shellQuote(stagePath) + "; exit $st; }"
+    ConflictState.pendingCompress = {
+      archiveName: archiveName, finalPath: finalPath, stagePath: stagePath, cmd: cmd
+    }
+    actionEngine.runPendingCompress()
   }
 
   function commitBulkRename() {
@@ -984,46 +1001,43 @@ Item {
       return
     }
     ConflictState.pendingBulkRename = pairs
-    var targetCounts = {}
-    pairs.forEach(function (p) {
-      if (p.newName === p.oldName) return
-      targetCounts[p.newPath] = (targetCounts[p.newPath] || 0) + 1
-    })
-    ConflictState.bulkRenameInternalDupes = Object.keys(targetCounts).filter(function (k) { return targetCounts[k] > 1 }).length
-    var checkPaths = pairs.filter(function (p) { return p.newName !== p.oldName })
-                          .map(function (p) { return p.newPath })
-    var total = Backend.FileOperations.existingPaths(checkPaths).length + ConflictState.bulkRenameInternalDupes
-    if (total === 0) {
+    var plan = _planBulkRename(pairs)
+    ConflictState.bulkRenameInternalDupes = plan.duplicateCount
+    if (plan.blockedCount === 0) {
       actionEngine.runPendingBulkRename()
     } else {
-      ConflictState.bulkRenameConflictCount = total
+      ConflictState.bulkRenameConflictCount = plan.blockedCount
       ConflictState.bulkRenameConflictOpen = true
     }
   }
 
+  function archiveExtractCommand(ext, archivePath, destinationDir) {
+    var path = Util.shellQuote(archivePath)
+    var dir = Util.shellQuote(destinationDir)
+    if (ext === "zip")
+      return { cmd: "unzip -n -q " + path + " -d " + dir,
+               listCmd: "unzip -Z1 -- " + path }
+    if (ext === "7z")
+      return { cmd: "7z x -y -aos " + path + " -o" + dir,
+               listCmd: "7z l -ba -slt -- " + path + " | grep '^Path = ' | sed 's/^Path = //'" }
+    if (ext === "rar")
+      return { cmd: "unrar x -o- " + path + " " + dir + "/",
+               listCmd: "unrar lb -- " + path }
+    // `tar tf archive` takes the next token as -f's argument; inserting `--`
+    // before the archive path would make tar try to open a file named "--".
+    if (FileTypeConfig.tarExt.indexOf(ext) >= 0)
+      return { cmd: "tar --skip-old-files -xf " + path + " -C " + dir,
+               listCmd: "tar tf " + path }
+    return null
+  }
+
   function extractHere(entry) {
     var ext = Utils.extOf(entry.name)
-    var path = Util.shellQuote(Utils.joinPath(NavState.currentPath, entry.name))
-    var dir = Util.shellQuote(NavState.currentPath)
-    var cmd, listCmd
-    // All force overwrite (-o/-y/-o+) -- needed so that
-    // runPendingExtract can actually overwrite after confirming the
-    // conflict notice below. listCmd uses the "flat list" mode of
-    // each tool (name per line, no header) to know what would be
-    // clobbered, without needing to parse tables.
-    if (ext === "zip") { cmd = "unzip -o -q " + path + " -d " + dir; listCmd = "unzip -Z1 -- " + path }
-    else if (ext === "7z") { cmd = "7z x -y " + path + " -o" + dir; listCmd = "7z l -ba -slt -- " + path + " | grep '^Path = ' | sed 's/^Path = //'" }
-    else if (ext === "rar") { cmd = "unrar x -o+ " + path + " " + dir + "/"; listCmd = "unrar lb -- " + path }
-    // No "--" on purpose, unlike the other three -- with "tf"
-    // (grouped short form of -t -f) tar takes the NEXT token as
-    // the direct argument of -f, so a "--" there is interpreted as the
-    // file name itself to open and tar fails with "--: No such file or
-    // directory". Real bug: this made the conflict check
-    // ALWAYS fail silently for tar/tar.gz/tar.bz2/tar.xz (listCmd
-    // returned nothing -> 0 conflicts always detected), although zip/7z/
-    // rar were not affected.
-    else if (FileTypeConfig.tarExt.indexOf(ext) >= 0) { cmd = "tar xf " + path + " -C " + dir; listCmd = "tar tf " + path }
-    else return
+    var commands = archiveExtractCommand(ext,
+      Utils.joinPath(NavState.currentPath, entry.name), NavState.currentPath)
+    if (!commands) return
+    var cmd = commands.cmd
+    var listCmd = commands.listCmd
     // Before, this overwrote without asking, unlike paste/drop/
     // rename (which do check conflicts). Before extracting, the
     // content of the archive is listed and it is checked whether any top-
@@ -1061,22 +1075,19 @@ Item {
     actionEngine.runPendingRename()
   }
 
-  // Existence check BEFORE creating -- real bug fixed here
-  // (josema, 2026-08-05): touch/mkdir -p are idempotent (silent
-  // success over something that already existed), so without this guard "New
-  // file"/"New folder" with a conflicting name created nothing new
-  // but DID register an undo -- a later Ctrl+Z sent to the
-  // trash the truly PRE-EXISTING item. Now, instead of failing
-  // silently (a notify-send easy to miss), the same
-  // Overwrite/Cancel dialog that rename already uses is offered.
+  // The synchronous check gives immediate feedback. Native exclusive creation
+  // is authoritative and closes the race between this check and execution.
   function commitNewFile(name) {
     EditModeState.creatingFile = false
     if (!Utils.validBasename(name)) { Backend.Notifier.notify("Invalid file name"); return }
     var path = Utils.joinPath(NavState.currentPath, name)
+    if (Backend.FileOperations.existingPaths([path]).length > 0) {
+      ConflictState.pendingNewFile = null
+      Backend.Notifier.notify("New file cancelled: \"" + name + "\" already exists")
+      return
+    }
     ConflictState.pendingNewFile = { path: path, name: name }
-    // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
-    if (Backend.FileOperations.existingPaths([path]).length > 0) ConflictState.newFileConflictOpen = true
-    else actionEngine.runPendingNewFile(false)
+    actionEngine.runPendingNewFile(false)
   }
 
   function commitNewFolder(name) {
@@ -1084,10 +1095,13 @@ Item {
     EditModeState.creatingFile = false
     if (!Utils.validBasename(name)) { Backend.Notifier.notify("Invalid file name"); return }
     var path = Utils.joinPath(NavState.currentPath, name)
+    if (Backend.FileOperations.existingPaths([path]).length > 0) {
+      ConflictState.pendingNewFolder = null
+      Backend.Notifier.notify("New folder cancelled: \"" + name + "\" already exists")
+      return
+    }
     ConflictState.pendingNewFolder = { path: path, name: name }
-    // NATIVE conflict (BUG-01): existingPaths instead of `test -e` via shell.
-    if (Backend.FileOperations.existingPaths([path]).length > 0) ConflictState.newFolderConflictOpen = true
-    else actionEngine.runPendingNewFolder(false)
+    actionEngine.runPendingNewFolder(false)
   }
 
   Backend.ProcessRunner {
@@ -1256,7 +1270,18 @@ Item {
     ConflictState.pendingCompress = null
     ConflictState.compressConflictOpen = false
     if (!p) return
-    actionEngine.runAction(p.cmd, "Compressing to \"" + p.archiveName + "\"…")
+    if (Backend.FileOperations.existingPaths([p.finalPath]).length > 0) {
+      Backend.Notifier.notify("Compression cancelled: \"" + p.archiveName + "\" already exists")
+      return
+    }
+    actionEngine.runAction(p.cmd, "Compressing to \"" + p.archiveName + "\"…", function () {
+      actionEngine.runNativeMove([{ src: p.stagePath, dest: p.finalPath }], "", false,
+        function (result) {
+          if (result.succeeded.length === 1) return
+          if (Backend.FileOperations.existingPaths([p.stagePath]).length > 0)
+            Backend.Notifier.notify("Archive destination was taken. The complete archive was kept at " + p.stagePath)
+        })
+    })
   }
 
   function cancelPendingCompress() {

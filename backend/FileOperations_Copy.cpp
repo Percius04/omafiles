@@ -24,7 +24,7 @@ void FileOperations::copy(const QString &source, const QString &destination,
         // Build the complete replacement beside destination. The old
         // destination stays in place until the final rename commit.
         const QString stage =
-            uniqueSiblingPath(destination, QStringLiteral("stage"));
+            FileOpsPrivate::uniqueSiblingPath(destination, QStringLiteral("stage"));
         const qint64 realTotal = treeSize(source);
         const qint64 pctTotal = qMax<qint64>(1, realTotal);
         qint64 copied = 0;

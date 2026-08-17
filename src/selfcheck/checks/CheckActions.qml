@@ -469,5 +469,144 @@ QtObject {
           })
           Backend.FileOperations.copy(sc.note, path)
         })
+
+        sc.add("Exclusive new file history belongs only to a confirmed creation", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var existing = sc.opsDir + "/owned-existing-file"
+          var fresh = sc.opsDir + "/owned-fresh-file"
+          sc._sh(["bash", "-c", "printf winner > " + sc._q(existing)], function (setup) {
+            if (setup.exitCode !== 0) { done(false, "setup failed"); return }
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            ConflictState.pendingNewFile = { path: existing, name: "owned-existing-file" }
+            c.actionEngine.runPendingNewFile(false)
+            sc._poll(function () { return !c.actionEngine.nativeBusy }, function (settled) {
+              var rejectedOwnedNothing = settled && UndoState.undoStack.length === 0
+              ConflictState.pendingNewFile = { path: fresh, name: "owned-fresh-file" }
+              c.actionEngine.runPendingNewFile(false)
+              sc._poll(function () { return !c.actionEngine.nativeBusy }, function (created) {
+                sc._sh(["cat", existing], function (readBack) {
+                  var ok = rejectedOwnedNothing && created && readBack.stdout === "winner"
+                    && Backend.FileOperations.existingPaths([fresh]).length === 1
+                    && UndoState.undoStack.length === 1
+                  done(ok, "rejected no-history=" + rejectedOwnedNothing
+                    + " created=" + created + " undo=" + UndoState.undoStack.length)
+                })
+              })
+            })
+          })
+        })
+
+        sc.add("Exclusive new folder history belongs only to a confirmed creation", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var existing = sc.opsDir + "/owned-existing-folder"
+          var fresh = sc.opsDir + "/owned-parent/owned-fresh-folder"
+          sc._sh(["mkdir", existing], function (setup) {
+            if (setup.exitCode !== 0) { done(false, "setup failed"); return }
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            ConflictState.pendingNewFolder = { path: existing, name: "owned-existing-folder" }
+            c.actionEngine.runPendingNewFolder(false)
+            sc._poll(function () { return !c.actionEngine.nativeBusy }, function (settled) {
+              var rejectedOwnedNothing = settled && UndoState.undoStack.length === 0
+              ConflictState.pendingNewFolder = { path: fresh, name: "owned-fresh-folder" }
+              c.actionEngine.runPendingNewFolder(false)
+              sc._poll(function () { return !c.actionEngine.nativeBusy }, function (created) {
+                var ok = rejectedOwnedNothing && created
+                  && Backend.FileOperations.existingPaths([existing, fresh]).length === 2
+                  && UndoState.undoStack.length === 1
+                done(ok, "rejected no-history=" + rejectedOwnedNothing
+                  + " created=" + created + " undo=" + UndoState.undoStack.length)
+              })
+            })
+          })
+        })
+
+        sc.add("Bulk rename excludes every conflict and duplicate destination", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var base = sc.opsDir + "/bulk-plan"
+          sc._sh(["bash", "-c", "mkdir -p " + sc._q(base)
+            + "; printf occupied > " + sc._q(base + "/occupied")], function (setup) {
+            if (setup.exitCode !== 0) { done(false, "setup failed"); return }
+            var pairs = [
+              { oldName: "a", newName: "dupe", oldPath: base + "/a", newPath: base + "/dupe" },
+              { oldName: "b", newName: "dupe", oldPath: base + "/b", newPath: base + "/dupe" },
+              { oldName: "c", newName: "occupied", oldPath: base + "/c", newPath: base + "/occupied" },
+              { oldName: "d", newName: "free", oldPath: base + "/d", newPath: base + "/free" }
+            ]
+            var plan = c.actionEngine._planBulkRename(pairs)
+            var ok = plan.blockedCount === 3 && plan.duplicateCount === 2
+              && plan.eligible.length === 1 && plan.eligible[0].oldName === "d"
+            done(ok, "blocked=" + plan.blockedCount + " duplicates=" + plan.duplicateCount
+              + " eligible=" + plan.eligible.length)
+          })
+        })
+
+        sc.add("Bulk rename partial failure records only confirmed pairs", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var base = sc.opsDir + "/bulk-partial"
+          sc._sh(["bash", "-c", "mkdir -p " + sc._q(base)
+            + "; printf source > " + sc._q(base + "/first")], function (setup) {
+            if (setup.exitCode !== 0) { done(false, "setup failed"); return }
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            ConflictState.pendingBulkRename = [
+              { oldName: "first", newName: "first-new", oldPath: base + "/first", newPath: base + "/first-new" },
+              { oldName: "missing", newName: "missing-new", oldPath: base + "/missing", newPath: base + "/missing-new" }
+            ]
+            c.actionEngine.runPendingBulkRename()
+            sc._poll(function () { return !c.actionEngine.nativeBusy }, function (settled) {
+              var ok = settled && Backend.FileOperations.existingPaths([base + "/first-new"]).length === 1
+                && Backend.FileOperations.existingPaths([base + "/first"]).length === 0
+                && UndoState.undoStack.length === 1
+                && UndoState.undoStack[0].label.indexOf("first") >= 0
+              done(ok, "settled=" + settled + " undo=" + UndoState.undoStack.length)
+            })
+          })
+        })
+
+        sc.add("Overwrite move has no undo; no-overwrite move does", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var src = sc.opsDir + "/overwrite-history-src"
+          var dst = sc.opsDir + "/overwrite-history-dst"
+          var safeSrc = sc.opsDir + "/safe-history-src"
+          var safeDst = sc.opsDir + "/safe-history-dst"
+          sc._sh(["bash", "-c", "printf new > " + sc._q(src)
+            + "; printf old > " + sc._q(dst) + "; printf safe > " + sc._q(safeSrc)], function (setup) {
+            if (setup.exitCode !== 0) { done(false, "setup failed"); return }
+            UndoState.undoStack = []
+            UndoState.redoStack = []
+            c.actionEngine.runNativeMove([{ src: src, dest: dst }], "", true, function (overwritten) {
+              c.actionEngine._pushMoveUndo(overwritten.succeeded, true)
+              var overwriteNoHistory = overwritten.succeeded.length === 1 && UndoState.undoStack.length === 0
+              c.actionEngine.runNativeMove([{ src: safeSrc, dest: safeDst }], "", false, function (safe) {
+                c.actionEngine._pushMoveUndo(safe.succeeded, false)
+                var ok = overwriteNoHistory && safe.succeeded.length === 1 && UndoState.undoStack.length === 1
+                done(ok, "overwrite no-history=" + overwriteNoHistory
+                  + " safe undo=" + UndoState.undoStack.length)
+              })
+            })
+          })
+        })
+
+        sc.add("Archive extraction commands are no-clobber", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var ae = c.actionEngine
+          var zip = ae.archiveExtractCommand("zip", "/tmp/a.zip", "/tmp/out").cmd
+          var seven = ae.archiveExtractCommand("7z", "/tmp/a.7z", "/tmp/out").cmd
+          var rar = ae.archiveExtractCommand("rar", "/tmp/a.rar", "/tmp/out").cmd
+          var tar = ae.archiveExtractCommand("tar", "/tmp/a.tar", "/tmp/out").cmd
+          var ok = zip.indexOf("unzip -n ") === 0 && zip.indexOf("unzip -o") < 0
+            && seven.indexOf("-aos") >= 0 && rar.indexOf("-o-") >= 0
+            && tar.indexOf("--skip-old-files") >= 0
+          done(ok, ok ? "zip/7z/rar/tar all skip existing entries"
+                      : [zip, seven, rar, tar].join(" | "))
+        })
   }
 }

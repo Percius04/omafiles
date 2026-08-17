@@ -36,6 +36,8 @@ inline std::atomic<bool> testCommitRenameFailure{false};
 inline std::atomic<bool> testSourceStageRenameFailure{false};
 inline std::atomic<bool> testCreateDestinationBeforeNoReplace{false};
 inline std::atomic<bool> testCreateRestoreDestinationBeforeCommit{false};
+inline std::atomic<bool> testCreateFileWinnerBeforeCreate{false};
+inline std::atomic<bool> testCreateDirectoryWinnerBeforeCreate{false};
 inline QString testRemoveFailurePath;
 inline QString testCancelRemovePath;
 inline QString testSwapRemovePath;

@@ -23,7 +23,7 @@ QtObject {
   property var extractConflictNames: []
   property bool extractConflictOpen: false
 
-  property var pendingCompress: null // { archiveName, cmd }
+  property var pendingCompress: null // { archiveName, finalPath, stagePath, cmd }
   property bool compressConflictOpen: false
 
   property var pendingBulkRename: null // [{ oldName, newName, oldPath, newPath }]

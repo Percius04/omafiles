@@ -51,15 +51,15 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 ### File operations
 
 - Rename, new folder, new file, make link, delete (to trash), copy / cut / paste, drag-and-drop, compress, extract, and bulk rename.
-- Nothing silently clobbers an existing name: copy/cut/paste/drag show overwrite / skip / cancel choices; extract/compress/bulk-rename show their own conflict flow; rename refuses an existing target; new folder / new file / make link report conflicts.
-- Copy and move use native byte progress. Overwrites are staged beside the destination and committed only after the replacement is complete. Cancellation and pre-commit failure preserve the old destination.
+- Nothing silently clobbers an existing name: copy/cut/paste/drag show overwrite / skip / cancel choices; extraction skips existing entries; compression, rename, bulk rename, new folder, new file, and make link refuse conflicting targets.
+- Copy and move use native byte progress. Overwrites are staged beside the destination and committed only after the replacement is complete. Cancellation and pre-commit failure preserve the old destination. Overwrite moves report that undo is unavailable because the displaced destination is not history-owned.
 - Copy/cut sync through the Qt system clipboard. `Ctrl+V` can also import an external `text/uri-list` through `wl-paste`. "Copy path" puts shell-quoted plain-text paths on the clipboard.
 - Rubber-band selection (drag over empty space; `Ctrl` adds to the selection), range selection with `Shift`+`j`/`k`/`↑`/`↓`, and drag-and-drop both out to and in from other apps.
 
 ### Undo / Redo
 
 - `Ctrl+Z` undo, `Ctrl+Shift+Z` or `Ctrl+Y` redo, with a LIFO stack (up to 20 steps).
-- Covers rename, new folder, new file, make link, delete, move, bulk rename, and chmod (chmod undo restores each item's own previous mode).
+- Covers rename, new folder, new file, make link, delete, no-overwrite move, bulk rename, and chmod (chmod undo restores each item's own previous mode). Moves that replace an existing destination do not advertise or record undo.
 
 ### Trash
 
@@ -82,6 +82,7 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 ### Archives
 
 - Browse inside a zip / 7z / rar / tar-family archive without extracting it; opening a file inside extracts just that one file to a temp cache and opens it with your default app. Read-only view.
+- Extraction skips existing entries. Compression writes a complete sibling stage and commits it without replacing an archive that already exists or wins a race.
 
 ### Default file manager (`org.freedesktop.FileManager1`)
 

@@ -93,8 +93,19 @@ public:
   // `rm -f`) it is NOT an error that `path` does not exist. Phase 13.C (josema).
   Q_INVOKABLE void remove(const QString &path, bool ignoreMissing = false);
 
-  // Creates the folder `path` (and the missing parents, like mkdir -p).
+  // Creates an empty file exclusively. Missing parent directories are created,
+  // but an entry already occupying the final path is always an error.
+  Q_INVOKABLE void createFile(const QString &path);
+
+  // Creates missing parents, then creates the final folder exclusively. An
+  // entry already occupying the final path is always an error.
   Q_INVOKABLE void mkdir(const QString &path);
+
+  // Returns a currently unused sibling path for staging a complete result
+  // before a no-overwrite native move commits it to `destination`.
+  Q_INVOKABLE QString uniqueSiblingPath(
+      const QString &destination,
+      const QString &role = QStringLiteral("stage")) const;
 
   // Sends `path` to the XDG trash (QFile::moveToTrash, creates the standard
   // .trashinfo; on other disks it uses their .Trash-$UID as the spec mandates).

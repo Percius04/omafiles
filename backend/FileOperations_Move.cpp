@@ -19,7 +19,7 @@ void FileOperations::move(const QString &source, const QString &destination,
           return {false, QStringLiteral("destination already exists")};
 
         const QString stage =
-            uniqueSiblingPath(destination, QStringLiteral("stage"));
+            FileOpsPrivate::uniqueSiblingPath(destination, QStringLiteral("stage"));
 
         // First try to move the source to a sibling stage. This detects a
         // same-filesystem move without changing destination. The commit helper

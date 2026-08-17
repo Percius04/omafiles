@@ -146,6 +146,11 @@ private slots:
   void cleanup();
   void transferRejectsUnsafePaths_data();
   void transferRejectsUnsafePaths();
+  void createFileIsExclusive();
+  void createFileRacePreservesWinner();
+  void mkdirIsExclusiveAndCreatesParents();
+  void mkdirRacePreservesWinner();
+  void compressionCommitRacePreservesCompleteStage();
   void noReplaceRacePreservesWinner_data();
   void noReplaceRacePreservesWinner();
   void overwriteRacePreservesWinnerAndRecovery_data();
@@ -199,6 +204,8 @@ void BackendSafetyTest::cleanup() {
   testSourceStageRenameFailure.store(false);
   testCreateDestinationBeforeNoReplace.store(false);
   testCreateRestoreDestinationBeforeCommit.store(false);
+  testCreateFileWinnerBeforeCreate.store(false);
+  testCreateDirectoryWinnerBeforeCreate.store(false);
   testRemoveFailurePath.clear();
   testCancelRemovePath.clear();
   testSwapRemovePath.clear();
@@ -265,6 +272,91 @@ void BackendSafetyTest::transferRejectsUnsafePaths() {
            QByteArray("keep"));
   if (alias == QLatin1String("descendant"))
     QVERIFY(!entryExists(destination));
+}
+
+void BackendSafetyTest::createFileIsExclusive() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString path = temp.filePath(QStringLiteral("parent/new-file"));
+
+  FileOperations operations;
+  const OperationResult created =
+      runOperation(operations, [&] { operations.createFile(path); });
+  QVERIFY2(created.finished, qPrintable(created.error));
+  QVERIFY(entryExists(path));
+
+  const OperationResult duplicate =
+      runOperation(operations, [&] { operations.createFile(path); });
+  QVERIFY(!duplicate.finished);
+  QVERIFY(duplicate.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
+  QVERIFY(entryExists(path));
+}
+
+void BackendSafetyTest::createFileRacePreservesWinner() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString path = temp.filePath(QStringLiteral("raced-file"));
+
+  testCreateFileWinnerBeforeCreate.store(true);
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.createFile(path); });
+  QVERIFY(!result.finished);
+  QVERIFY(result.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
+  QCOMPARE(readFile(path), QByteArray("race-winner"));
+}
+
+void BackendSafetyTest::mkdirIsExclusiveAndCreatesParents() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString path = temp.filePath(QStringLiteral("parent/new-directory"));
+
+  FileOperations operations;
+  const OperationResult created =
+      runOperation(operations, [&] { operations.mkdir(path); });
+  QVERIFY2(created.finished, qPrintable(created.error));
+  QVERIFY(QFileInfo(path).isDir());
+
+  const OperationResult duplicate =
+      runOperation(operations, [&] { operations.mkdir(path); });
+  QVERIFY(!duplicate.finished);
+  QVERIFY(duplicate.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
+  QVERIFY(QFileInfo(path).isDir());
+}
+
+void BackendSafetyTest::mkdirRacePreservesWinner() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString path = temp.filePath(QStringLiteral("raced-directory"));
+
+  testCreateDirectoryWinnerBeforeCreate.store(true);
+  FileOperations operations;
+  const OperationResult result =
+      runOperation(operations, [&] { operations.mkdir(path); });
+  QVERIFY(!result.finished);
+  QVERIFY(result.error.contains(QStringLiteral("exist"), Qt::CaseInsensitive));
+  QVERIFY(QFileInfo(path).isDir());
+}
+
+void BackendSafetyTest::compressionCommitRacePreservesCompleteStage() {
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString destination = temp.filePath(QStringLiteral("archive.zip"));
+  FileOperations operations;
+  const QString stage = operations.uniqueSiblingPath(
+      destination, QStringLiteral("archive-stage"));
+  const QString hostileRoleStage = operations.uniqueSiblingPath(
+      destination, QStringLiteral("../../escape"));
+  QVERIFY(!stage.isEmpty());
+  QCOMPARE(QFileInfo(hostileRoleStage).absolutePath(), temp.path());
+  QVERIFY(writeFile(stage, "complete-archive"));
+
+  testCreateDestinationBeforeNoReplace.store(true);
+  const OperationResult result = runOperation(
+      operations, [&] { operations.move(stage, destination, false); });
+  QVERIFY(!result.finished);
+  QCOMPARE(readFile(destination), QByteArray("race-winner"));
+  QCOMPARE(readFile(stage), QByteArray("complete-archive"));
 }
 
 void BackendSafetyTest::noReplaceRacePreservesWinner_data() {

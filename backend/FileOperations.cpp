@@ -125,11 +125,67 @@ void FileOperations::rename(const QString &path, const QString &newName) {
   });
 }
 
-void FileOperations::mkdir(const QString &path) {
-  run(QStringLiteral("mkdir"), path, [path](const auto &) -> Result {
-    if (!QDir().mkpath(path))
-      return {false, QStringLiteral("cannot create %1").arg(path)};
+void FileOperations::createFile(const QString &path) {
+  run(QStringLiteral("createFile"), path, [path](const auto &) -> Result {
+    const QFileInfo entry(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+    if (entry.fileName().isEmpty())
+      return {false, QStringLiteral("invalid file path")};
+    if (!QDir().mkpath(entry.absolutePath()))
+      return {false,
+              QStringLiteral("cannot create parent directory %1")
+                  .arg(entry.absolutePath())};
+#ifdef OMAFILES_UNIT_TEST
+    if (testCreateFileWinnerBeforeCreate.exchange(false)) {
+      QFile winner(entry.absoluteFilePath());
+      if (winner.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        winner.write("race-winner");
+        winner.close();
+      }
+    }
+#endif
+    const QByteArray encoded = QFile::encodeName(entry.absoluteFilePath());
+    const int fd = ::open(encoded.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                          0666);
+    if (fd < 0)
+      return {false, QString::fromLocal8Bit(strerror(errno))};
+    ::close(fd);
     return {true, QString()};
   });
+}
+
+void FileOperations::mkdir(const QString &path) {
+  run(QStringLiteral("mkdir"), path, [path](const auto &) -> Result {
+    const QFileInfo entry(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
+    if (entry.fileName().isEmpty())
+      return {false, QStringLiteral("invalid folder path")};
+    if (!QDir().mkpath(entry.absolutePath()))
+      return {false,
+              QStringLiteral("cannot create parent directory %1")
+                  .arg(entry.absolutePath())};
+#ifdef OMAFILES_UNIT_TEST
+    if (testCreateDirectoryWinnerBeforeCreate.exchange(false))
+      QDir().mkdir(entry.absoluteFilePath());
+#endif
+    if (::mkdir(QFile::encodeName(entry.absoluteFilePath()).constData(), 0777) != 0)
+      return {false, QString::fromLocal8Bit(strerror(errno))};
+    return {true, QString()};
+  });
+}
+
+QString FileOperations::uniqueSiblingPath(const QString &destination,
+                                          const QString &role) const {
+  if (destination.isEmpty())
+    return {};
+  QString safeRole;
+  for (const QChar ch : role) {
+    if (ch.isLetterOrNumber() || ch == QLatin1Char('-') ||
+        ch == QLatin1Char('_'))
+      safeRole.append(ch);
+    else
+      safeRole.append(QLatin1Char('-'));
+  }
+  if (safeRole.isEmpty())
+    safeRole = QStringLiteral("stage");
+  return FileOpsPrivate::uniqueSiblingPath(destination, safeRole);
 }
 
