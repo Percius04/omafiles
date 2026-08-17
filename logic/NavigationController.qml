@@ -15,6 +15,7 @@ Item {
   property Item list: null
   property Item actionEngine: null
   property Item mountOps: null
+  property Item propertiesLoader: null
 
   // ---------- Directory refresh / watching ----------
   function refresh() {
@@ -99,7 +100,9 @@ Item {
     root._pendingScrollOffset = 0
     root.loaded = true
     var selectNames = NavState.pendingSelectNames
+    var fileManagerAction = NavState.pendingFileManagerAction
     NavState.pendingSelectNames = []
+    NavState.pendingFileManagerAction = ""
     var foundIndices = []
     if (selectNames.length > 0) {
       for (var i = 0; i < NavState.visibleEntries.length; i++) {
@@ -116,6 +119,8 @@ Item {
       SelectionState.anchorIndex = foundIndices[0]
       SelectionState.selectedIndices = foundIndices
       if (PreviewState.previewOpen && foundIndices.length > 1) PreviewState.previewOpen = false
+      if (fileManagerAction === "show-properties" && propertiesLoader)
+        propertiesLoader.showPropertiesForSelection()
     } else if (SelectionState.selectedIndex >= NavState.visibleEntries.length) {
       SelectionState.selectedIndex = NavState.visibleEntries.length - 1
     }

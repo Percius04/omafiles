@@ -167,6 +167,70 @@ grep -q '^user-mime-edit=yes$' "$XDG_CONFIG_HOME/mimeapps.list"
 grep -q 'MIME configuration' "$ROOT3/disable-edited-mime.out"
 [[ -f "$XDG_STATE_HOME/omafiles/integrations/enabled" ]]
 
+# Every managed mutation has an isolated interruption seam. Disable must recover
+# only recorded completed steps, restore exact bytes, and clear transaction state.
+for interrupt_step in mime portal-0 portal-1 shared-service; do
+  INTERRUPT_ROOT="$TOP/interrupted-$interrupt_step"
+  make_case "$INTERRUPT_ROOT"
+  printf '[Default Applications]\ninode/directory=old.desktop;\ncustom=mime\n' \
+    >"$XDG_CONFIG_HOME/mimeapps.list"
+  printf '[preferred]\ndefault=hyprland;gtk\ncustom=hyprland\n' \
+    >"$XDG_CONFIG_HOME/xdg-desktop-portal/hyprland-portals.conf"
+  printf '[preferred]\ndefault=gtk\ncustom=generic\n' \
+    >"$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf"
+  mkdir -p "$XDG_DATA_HOME/dbus-1/services"
+  printf '[D-BUS Service]\nName=org.freedesktop.FileManager1\nExec=/baseline/file-manager\n' \
+    >"$XDG_DATA_HOME/dbus-1/services/org.freedesktop.FileManager1.service"
+  cp "$XDG_CONFIG_HOME/mimeapps.list" "$INTERRUPT_ROOT/mime.before"
+  cp "$XDG_CONFIG_HOME/xdg-desktop-portal/hyprland-portals.conf" \
+    "$INTERRUPT_ROOT/portal-0.before"
+  cp "$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf" \
+    "$INTERRUPT_ROOT/portal-1.before"
+  cp "$XDG_DATA_HOME/dbus-1/services/org.freedesktop.FileManager1.service" \
+    "$INTERRUPT_ROOT/shared.before"
+  INTEGRATE=$XDG_DATA_HOME/omafiles/scripts/install-integrations.sh
+  if OMAFILES_TEST_INTERRUPT_AFTER="$interrupt_step" "$INTEGRATE" --enable \
+      >"$INTERRUPT_ROOT/enable.out" 2>&1; then
+    echo "enable did not interrupt after $interrupt_step" >&2
+    exit 1
+  fi
+  [[ -f "$XDG_STATE_HOME/omafiles/integrations/enabling" ]]
+  [[ ! -e "$XDG_STATE_HOME/omafiles/integrations/enabled" ]]
+  "$INTEGRATE" --disable
+  cmp "$INTERRUPT_ROOT/mime.before" "$XDG_CONFIG_HOME/mimeapps.list"
+  cmp "$INTERRUPT_ROOT/portal-0.before" \
+    "$XDG_CONFIG_HOME/xdg-desktop-portal/hyprland-portals.conf"
+  cmp "$INTERRUPT_ROOT/portal-1.before" \
+    "$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf"
+  cmp "$INTERRUPT_ROOT/shared.before" \
+    "$XDG_DATA_HOME/dbus-1/services/org.freedesktop.FileManager1.service"
+  [[ ! -e "$XDG_STATE_HOME/omafiles/integrations/enabling" ]]
+  [[ ! -e "$XDG_STATE_HOME/omafiles/integrations/enabled" ]]
+  [[ ! -e "$XDG_STATE_HOME/omafiles/integrations/transaction" ]]
+done
+
+# An edit after an interrupted completed step is never overwritten. Disable
+# reports the recovery as incomplete and retains the enabling transaction.
+EDITED_INTERRUPT_ROOT="$TOP/interrupted-edited-mime"
+make_case "$EDITED_INTERRUPT_ROOT"
+printf '[Default Applications]\ninode/directory=old.desktop;\n' \
+  >"$XDG_CONFIG_HOME/mimeapps.list"
+INTEGRATE=$XDG_DATA_HOME/omafiles/scripts/install-integrations.sh
+if OMAFILES_TEST_INTERRUPT_AFTER=mime "$INTEGRATE" --enable \
+    >"$EDITED_INTERRUPT_ROOT/enable.out" 2>&1; then
+  echo 'enable did not interrupt before edited recovery case' >&2
+  exit 1
+fi
+printf 'user-after-interruption=yes\n' >>"$XDG_CONFIG_HOME/mimeapps.list"
+if "$INTEGRATE" --disable >"$EDITED_INTERRUPT_ROOT/disable.out" 2>&1; then
+  echo 'disable overwrote a user edit after interrupted enable' >&2
+  exit 1
+fi
+grep -q '^user-after-interruption=yes$' "$XDG_CONFIG_HOME/mimeapps.list"
+grep -q 'disable is incomplete' "$EDITED_INTERRUPT_ROOT/disable.out"
+[[ -f "$XDG_STATE_HOME/omafiles/integrations/enabling" ]]
+[[ -f "$XDG_STATE_HOME/omafiles/integrations/transaction/mime.completed-hash" ]]
+
 ! grep -R -E -q '(^| )restart xdg-desktop-portal' "$TOP"/*/systemctl.log
 cat "$TOP"/*/systemctl.log | grep -q 'try-restart xdg-desktop-portal'
 echo "isolated integration lifecycle: PASS"

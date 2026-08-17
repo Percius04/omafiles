@@ -1,27 +1,16 @@
 #!/usr/bin/python3
-# org.freedesktop.FileManager1 backend for Omafiles.
-#
-# Many apps (Firefox when finishing a download, "Show in file manager" of
-# GTK/Qt apps, etc.) don't use xdg-mime/.desktop to "open the containing
-# folder" -- they call this D-Bus interface, which traditionally only
-# Nautilus provides (org.freedesktop.FileManager1.service in
-# /usr/share/dbus-1/services/). This user service, activated by
-# D-Bus on demand, takes its place by forwarding the request to the
-# Omafiles binary (single instance).
+"""org.freedesktop.FileManager1 backend for OmaFiles."""
 
-import sys
+import json
+import os
 import shutil
+import sys
 import urllib.parse
 from pathlib import Path
 
-import gi
-gi.require_version("Gio", "2.0")
-from gi.repository import Gio, GLib
-
 BUS_NAME = "org.freedesktop.FileManager1"
 OBJECT_PATH = "/org/freedesktop/FileManager1"
-# The standalone Qt6 binary (single instance) is launched from its portable path.
-OMAFILES_BIN = shutil.which("omafiles") or str(Path.home() / ".local" / "bin" / "omafiles")
+VALID_ACTIONS = {"show-items", "show-folders", "show-properties"}
 
 INTROSPECTION_XML = """
 <node>
@@ -42,104 +31,150 @@ INTROSPECTION_XML = """
 </node>
 """
 
-loop = GLib.MainLoop()
 
-
-def uri_to_path(uri):
-    parsed = urllib.parse.urlparse(uri)
-    if parsed.scheme not in ("file", ""):
-        return None
-    return urllib.parse.unquote(parsed.path)
-
-
-def summon(folder, select_name=""):
-    # Same payload that core/OmafilesContent.open() understands: absolute folder,
-    # optionally "\n" + names to select (several with \x1f). The binary
-    # (single instance) navigates to that folder bringing the window to the front.
-    payload = folder if not select_name else folder + "\n" + select_name
-    try:
-        Gio.Subprocess.new(
-            [OMAFILES_BIN, payload],
-            Gio.SubprocessFlags.NONE,
-        )
-    except GLib.Error as e:
-        print("omafiles FileManager1: failed to launch omafiles:", e, file=sys.stderr)
-
-
-def handle_show(uris, select_item):
-    # Real bug (audit 2026-08-05): this called summon() once PER
-    # URI. Each summon after the first
-    # falls into the "already loaded" branch of core open(), which
-    # ALWAYS opens a new tab -- so selecting several
-    # files from the SAME folder in another app (e.g. several downloads in
-    # Firefox, "Show in file manager") opened a duplicate
-    # tab per file, with only the last one actually highlighted.
-    # Now they are grouped by containing folder and a single
-    # summon is sent per folder, with all the names of that folder in the
-    # payload (separated by \x1f -- see core open()).
-    if select_item:
-        # ShowItems/ShowItemProperties always mean "show it
-        # inside its containing folder", whether file or folder.
-        groups = {}
-        order = []
-        for uri in uris:
-            path = uri_to_path(uri)
-            if not path:
-                continue
-            p = Path(path)
-            parent = str(p.parent)
-            if parent not in groups:
-                groups[parent] = []
-                order.append(parent)
-            groups[parent].append(p.name)
-        for parent in order:
-            summon(parent, "\x1f".join(groups[parent]))
-    else:
-        seen = []
-        for uri in uris:
-            path = uri_to_path(uri)
-            if not path:
-                continue
-            p = Path(path)
-            target = str(p) if p.is_dir() else str(p.parent)
-            if target not in seen:
-                seen.append(target)
-                summon(target)
-
-
-def on_method_call(connection, sender, object_path, interface_name, method_name, parameters, invocation):
-    uris, _startup_id = parameters.unpack()
-    if method_name in ("ShowItems", "ShowItemProperties"):
-        handle_show(uris, select_item=True)
-    elif method_name == "ShowFolders":
-        handle_show(uris, select_item=False)
-    invocation.return_value(None)
-
-
-def on_bus_acquired(connection, name):
-    node_info = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)
-    connection.register_object(
-        OBJECT_PATH,
-        node_info.interfaces[0],
-        on_method_call,
-        None,
-        None,
+def valid_basename(name):
+    return (
+        isinstance(name, str)
+        and bool(name)
+        and name not in (".", "..")
+        and "/" not in name
+        and "\0" not in name
     )
 
 
-def on_name_lost(connection, name):
-    # Another process already has the name (or the bus withdrew it) -- there's
-    # nothing to dispute, we simply exit.
-    loop.quit()
+def uri_to_path(uri):
+    if not isinstance(uri, str):
+        return None
+    parsed = urllib.parse.urlsplit(uri)
+    if parsed.scheme not in ("file", "") or parsed.netloc or parsed.query or parsed.fragment:
+        return None
+    try:
+        path = urllib.parse.unquote(parsed.path, errors="strict")
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not os.path.isabs(path) or "\0" in path:
+        return None
+    return os.path.normpath(path)
 
 
-Gio.bus_own_name(
-    Gio.BusType.SESSION,
-    BUS_NAME,
-    Gio.BusNameOwnerFlags.NONE,
-    on_bus_acquired,
-    None,
-    on_name_lost,
-)
+def build_file_manager_payload(action, folder, basenames):
+    """Return the strict, non-secret JSON accepted by the normal instance."""
+    if action not in VALID_ACTIONS:
+        raise ValueError("invalid file-manager action")
+    if not isinstance(folder, str) or not os.path.isabs(folder) or "\0" in folder:
+        raise ValueError("folder must be an absolute path")
+    names = list(basenames)
+    if any(not valid_basename(name) for name in names):
+        raise ValueError("invalid basename")
+    if action == "show-folders" and names:
+        raise ValueError("show-folders must not select basenames")
+    if action != "show-folders" and not names:
+        raise ValueError("item actions require basenames")
+    return json.dumps(
+        {
+            "kind": "file-manager",
+            "action": action,
+            "folder": os.path.normpath(folder),
+            "basenames": names,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
-loop.run()
+
+def payloads_for_uris(uris, action):
+    """Group URI requests into one validated payload per target folder."""
+    if action not in VALID_ACTIONS:
+        raise ValueError("invalid file-manager action")
+    if action == "show-folders":
+        folders = []
+        for uri in uris:
+            path = uri_to_path(uri)
+            if not path:
+                continue
+            target = path if Path(path).is_dir() else str(Path(path).parent)
+            if target not in folders:
+                folders.append(target)
+        return [build_file_manager_payload(action, folder, []) for folder in folders]
+
+    groups = {}
+    order = []
+    for uri in uris:
+        path = uri_to_path(uri)
+        if not path:
+            continue
+        item = Path(path)
+        parent = str(item.parent)
+        if not valid_basename(item.name):
+            continue
+        if parent not in groups:
+            groups[parent] = []
+            order.append(parent)
+        groups[parent].append(item.name)
+    return [build_file_manager_payload(action, parent, groups[parent]) for parent in order]
+
+
+def resolve_omafiles_bin():
+    return shutil.which("omafiles") or str(Path.home() / ".local" / "bin" / "omafiles")
+
+
+def summon(payload, Gio, GLib):
+    try:
+        Gio.Subprocess.new([resolve_omafiles_bin(), payload], Gio.SubprocessFlags.NONE)
+    except GLib.Error as exc:
+        print("omafiles FileManager1: failed to launch omafiles:", exc, file=sys.stderr)
+
+
+def make_method_handler(Gio, GLib):
+    actions = {
+        "ShowItems": "show-items",
+        "ShowFolders": "show-folders",
+        "ShowItemProperties": "show-properties",
+    }
+
+    def on_method_call(connection, sender, object_path, interface_name,
+                       method_name, parameters, invocation):
+        del connection, sender, object_path, interface_name
+        uris, _startup_id = parameters.unpack()
+        action = actions.get(method_name)
+        if action:
+            for payload in payloads_for_uris(uris, action):
+                summon(payload, Gio, GLib)
+        invocation.return_value(None)
+
+    return on_method_call
+
+
+def main():
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    loop = GLib.MainLoop()
+    handler = make_method_handler(Gio, GLib)
+
+    def on_bus_acquired(connection, name):
+        del name
+        node_info = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)
+        connection.register_object(
+            OBJECT_PATH, node_info.interfaces[0], handler, None, None
+        )
+
+    def on_name_lost(connection, name):
+        del connection, name
+        loop.quit()
+
+    Gio.bus_own_name(
+        Gio.BusType.SESSION,
+        BUS_NAME,
+        Gio.BusNameOwnerFlags.NONE,
+        on_bus_acquired,
+        None,
+        on_name_lost,
+    )
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

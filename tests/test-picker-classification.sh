@@ -31,6 +31,24 @@ picker_output=$(OMAFILES_TEST_CLASSIFY_ONLY=1 QT_QPA_PLATFORM=offscreen "$BINARY
 normal_output=$(OMAFILES_TEST_CLASSIFY_ONLY=1 QT_QPA_PLATFORM=offscreen "$BINARY" /tmp)
 [[ $normal_output == normal-delivered ]]
 
+# FileManager1 uses the normal socket, but only after strict native validation.
+filemanager_payload='{"kind":"file-manager","action":"show-properties","folder":"/tmp","basenames":["item.txt"]}'
+filemanager_output=$(OMAFILES_TEST_CLASSIFY_ONLY=1 QT_QPA_PLATFORM=offscreen \
+  "$BINARY" "$filemanager_payload")
+[[ $filemanager_output == normal-delivered ]]
+"$BINARY" --test-file-manager-payload "$filemanager_payload"
+invalid_filemanager_payloads=(
+  '{"kind":"file-manager","action":"invalid","folder":"/tmp","basenames":["item.txt"]}'
+  '{"kind":"file-manager","action":"show-items","folder":"relative","basenames":["item.txt"]}'
+  '{"kind":"file-manager","action":"show-items","folder":"/tmp","basenames":["../item.txt"]}'
+  '{"kind":"file-manager","action":"show-items","folder":"/tmp","basenames":[]}'
+  '{"kind":"file-manager","action":"show-folders","folder":"/tmp","basenames":["item.txt"]}'
+  '{"kind":"file-manager","action":"show-items","folder":"/tmp","basenames":["item.txt"],"extra":true}'
+)
+for invalid_payload in "${invalid_filemanager_payloads[@]}"; do
+  ! "$BINARY" --test-file-manager-payload "$invalid_payload"
+done
+
 # Response code must use the in-process responder; picker navigation must not
 # become normal session or window state after the visible request is cleared.
 ! grep -R -q 'Backend.Detached.run.*dbus\|"dbus-send"' \

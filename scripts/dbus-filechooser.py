@@ -14,6 +14,7 @@ from urllib.parse import unquote_to_bytes, urlsplit
 
 BUS_NAME = "org.freedesktop.impl.portal.desktop.omafiles"
 OBJECT_PATH = "/org/freedesktop/portal/desktop"
+FRONTEND_BUS_NAME = "org.freedesktop.portal.Desktop"
 
 INTROSPECTION_XML = """
 <node>
@@ -73,6 +74,7 @@ Gio = None
 GLib = None
 loop = None
 dbus_connection = None
+frontend_owner = ""
 active_requests = {}
 
 
@@ -137,6 +139,72 @@ def build_picker_payload(*, folder, request_id, mode, multiple, suggested_name, 
 def sender_matches_request(requests, request_id, sender):
     request = requests.get(request_id)
     return bool(request) and request.get("picker_sender") == sender
+
+
+def _authorization_error(invocation, message):
+    invocation.return_dbus_error(
+        "org.freedesktop.impl.portal.desktop.omafiles.NotAuthorized", message
+    )
+
+
+def require_frontend_sender(sender, invocation):
+    """Accept portal methods only from the current Desktop frontend owner."""
+    if frontend_owner and sender == frontend_owner:
+        return True
+    _authorization_error(invocation, "Caller is not the portal frontend owner")
+    return False
+
+
+def require_new_handle(requests, handle, invocation):
+    """Reject a duplicate active request without replacing its state."""
+    if handle not in requests:
+        return True
+    invocation.return_dbus_error(
+        "org.freedesktop.impl.portal.desktop.omafiles.DuplicateHandle",
+        "Request handle is already active",
+    )
+    return False
+
+
+def frontend_sender_matches(requests, request_id, sender):
+    request = requests.get(request_id)
+    return bool(request) and request.get("frontend_sender") == sender
+
+
+def frontend_request_handles(requests, sender):
+    return [
+        handle
+        for handle, request in requests.items()
+        if request.get("frontend_sender") == sender
+    ]
+
+
+def resolve_frontend_owner(connection):
+    """Resolve the unique owner of org.freedesktop.portal.Desktop."""
+    reply = connection.call_sync(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "GetNameOwner",
+        GLib.Variant("(s)", (FRONTEND_BUS_NAME,)),
+        GLib.VariantType.new("(s)"),
+        0,
+        -1,
+        None,
+    )
+    return reply.unpack()[0]
+
+
+def on_frontend_owner_changed(connection, sender_name, object_path, interface_name,
+                              signal_name, parameters, user_data=None):
+    del connection, sender_name, object_path, interface_name, signal_name, user_data
+    global frontend_owner
+    name, old_owner, new_owner = parameters.unpack()
+    if name != FRONTEND_BUS_NAME:
+        return
+    frontend_owner = new_owner
+    for handle in frontend_request_handles(active_requests, old_owner):
+        complete_request(handle, 1, force_exit=True)
 
 
 def claim_request(requests, request_id):
@@ -233,9 +301,16 @@ def complete_request(handle, response_code, uris=None, force_exit=False):
 
 def request_method_call(connection, sender, object_path, interface_name,
                         method_name, parameters, invocation):
-    if method_name == "Close":
-        complete_request(object_path, 1, force_exit=True)
-        invocation.return_value(None)
+    del connection, interface_name, parameters
+    if method_name != "Close":
+        return
+    if not require_frontend_sender(sender, invocation):
+        return
+    if not frontend_sender_matches(active_requests, object_path, sender):
+        _authorization_error(invocation, "Caller did not create this request")
+        return
+    complete_request(object_path, 1, force_exit=True)
+    invocation.return_value(None)
 
 
 def _decode_option_path(options, key):
@@ -250,7 +325,12 @@ def _decode_option_path(options, key):
 
 def on_filechooser_method_call(connection, sender, object_path, interface_name,
                                method_name, parameters, invocation):
+    del object_path, interface_name
+    if not require_frontend_sender(sender, invocation):
+        return
     handle, _app_id, _parent_window, _title, options = parameters.unpack()
+    if not require_new_handle(active_requests, handle, invocation):
+        return
     multiple = bool(get_opt(options, "multiple", False))
     directory = bool(get_opt(options, "directory", False))
 
@@ -294,6 +374,7 @@ def on_filechooser_method_call(connection, sender, object_path, interface_name,
         "mode": mode,
         "files": files,
         "token": token,
+        "frontend_sender": sender,
         "picker_sender": None,
         "process": None,
     }
@@ -373,8 +454,23 @@ def on_submission_method_call(connection, sender, object_path, interface_name,
 
 
 def on_bus_acquired(connection, name):
-    global dbus_connection
+    del name
+    global dbus_connection, frontend_owner
     dbus_connection = connection
+    connection.signal_subscribe(
+        "org.freedesktop.DBus",
+        "org.freedesktop.DBus",
+        "NameOwnerChanged",
+        "/org/freedesktop/DBus",
+        FRONTEND_BUS_NAME,
+        0,
+        on_frontend_owner_changed,
+        None,
+    )
+    try:
+        frontend_owner = resolve_frontend_owner(connection)
+    except GLib.Error:
+        frontend_owner = ""
     node_info = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)
     connection.register_object(
         OBJECT_PATH, node_info.interfaces[0], on_filechooser_method_call, None, None

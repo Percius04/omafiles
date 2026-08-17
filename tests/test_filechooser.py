@@ -56,6 +56,143 @@ class PickerPayloadTests(unittest.TestCase):
         self.assertNotIn("picker:", payload)
 
 
+class FrontendAuthorizationTests(unittest.TestCase):
+    class FakeInvocation:
+        def __init__(self):
+            self.errors = []
+            self.replies = []
+
+        def return_dbus_error(self, name, message):
+            self.errors.append((name, message))
+
+        def return_value(self, value):
+            self.replies.append(value)
+
+    def setUp(self):
+        self.original_owner = chooser.frontend_owner
+        chooser.frontend_owner = ":1.20"
+
+    def tearDown(self):
+        chooser.frontend_owner = self.original_owner
+
+    def test_authorized_and_unauthorized_frontend_requests(self):
+        authorized = self.FakeInvocation()
+        unauthorized = self.FakeInvocation()
+        self.assertTrue(chooser.require_frontend_sender(":1.20", authorized))
+        self.assertFalse(chooser.require_frontend_sender(":1.99", unauthorized))
+        self.assertEqual(authorized.errors, [])
+        self.assertEqual(len(unauthorized.errors), 1)
+
+    def test_duplicate_handle_is_rejected_before_registration(self):
+        invocation = self.FakeInvocation()
+        requests = {"/request/active": {"frontend_sender": ":1.20"}}
+        self.assertFalse(
+            chooser.require_new_handle(requests, "/request/active", invocation)
+        )
+        self.assertEqual(len(invocation.errors), 1)
+
+    def test_close_accepts_only_current_stored_frontend_sender(self):
+        requests = {"/request/active": {"frontend_sender": ":1.20"}}
+        self.assertTrue(
+            chooser.frontend_sender_matches(requests, "/request/active", ":1.20")
+        )
+        self.assertFalse(
+            chooser.frontend_sender_matches(requests, "/request/active", ":1.99")
+        )
+
+        invocation = self.FakeInvocation()
+        original_requests = chooser.active_requests
+        original_complete = chooser.complete_request
+        try:
+            chooser.active_requests = requests
+            chooser.frontend_owner = ":1.99"
+            chooser.complete_request = lambda *args, **kwargs: self.fail(
+                "stale frontend sender completed the request"
+            )
+            chooser.request_method_call(
+                object(), ":1.20", "/request/active", "unused", "Close", (),
+                invocation,
+            )
+            self.assertEqual(len(invocation.errors), 1)
+            self.assertEqual(invocation.replies, [])
+        finally:
+            chooser.active_requests = original_requests
+            chooser.complete_request = original_complete
+            chooser.frontend_owner = ":1.20"
+
+    def test_owner_resolution_uses_session_bus_connection(self):
+        class FakeReply:
+            def unpack(self):
+                return (":1.20",)
+
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+
+            def call_sync(self, *args):
+                self.calls.append(args)
+                return FakeReply()
+
+        class FakeVariant:
+            def __init__(self, signature, value):
+                self.signature = signature
+                self.value = value
+
+        class FakeVariantType:
+            @staticmethod
+            def new(signature):
+                return signature
+
+        class FakeGLib:
+            Variant = FakeVariant
+            VariantType = FakeVariantType
+
+        original_glib = chooser.GLib
+        try:
+            chooser.GLib = FakeGLib
+            connection = FakeConnection()
+            self.assertEqual(chooser.resolve_frontend_owner(connection), ":1.20")
+            self.assertEqual(len(connection.calls), 1)
+            self.assertEqual(connection.calls[0][0], "org.freedesktop.DBus")
+        finally:
+            chooser.GLib = original_glib
+
+    def test_owner_loss_cleanup_returns_only_matching_requests(self):
+        requests = {
+            "/request/a": {"frontend_sender": ":1.20"},
+            "/request/b": {"frontend_sender": ":1.99"},
+        }
+        self.assertEqual(
+            chooser.frontend_request_handles(requests, ":1.20"), ["/request/a"]
+        )
+
+    def test_owner_loss_callback_cleans_matching_requests(self):
+        class FakeParameters:
+            def unpack(self):
+                return ("org.freedesktop.portal.Desktop", ":1.20", "")
+
+        completed = []
+        original_requests = chooser.active_requests
+        original_complete = chooser.complete_request
+        try:
+            chooser.active_requests = {
+                "/request/a": {"frontend_sender": ":1.20"},
+                "/request/b": {"frontend_sender": ":1.99"},
+            }
+            chooser.complete_request = lambda handle, code, force_exit=False: completed.append(
+                (handle, code, force_exit)
+            )
+            chooser.on_frontend_owner_changed(
+                object(), ":1.0", "/org/freedesktop/DBus",
+                "org.freedesktop.DBus", "NameOwnerChanged", FakeParameters()
+            )
+            self.assertEqual(completed, [("/request/a", 1, True)])
+            self.assertEqual(chooser.frontend_owner, "")
+        finally:
+            chooser.active_requests = original_requests
+            chooser.complete_request = original_complete
+
+
 class SubmissionNormalizationTests(unittest.TestCase):
     def test_backend_exports_the_impl_request_close_interface(self):
         self.assertIn(

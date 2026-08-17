@@ -64,6 +64,7 @@ Item {
     root: registry.root
     list: registry.list
     mountOps: mountOps
+    propertiesLoader: propertiesLoader
   }
 
   // Shared launcher to open with the default app / open a

@@ -297,6 +297,9 @@ if(BUILD_TESTING)
   add_test(NAME portal.filechooser-unit
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_filechooser.py" -v)
+  add_test(NAME integration.filemanager1-unit
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_filemanager1.py" -v)
   add_test(NAME integration.user-default-roundtrip
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-integrations.sh"
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/install-integrations.sh")
@@ -305,6 +308,9 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/open-path.sh")
   add_test(NAME integration.picker-classification
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-picker-classification.sh"
+            $<TARGET_FILE:omafiles-standalone>)
+  add_test(NAME integration.simultaneous-instance
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-simultaneous-instance.sh"
             $<TARGET_FILE:omafiles-standalone>)
 
   configure_file(

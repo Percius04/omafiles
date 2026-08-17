@@ -14,6 +14,7 @@ INSTALL_DATA_ROOT=$(dirname "$SELF_RES")
 XDG_DATA=${XDG_DATA_HOME:-$HOME/.local/share}
 XDG_CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/omafiles/integrations
+TRANSACTION_DIR=$STATE_DIR/transaction
 STATIC_SOURCE=$SELF_RES/integrations
 SHARED_SERVICE_SOURCE=$STATIC_SOURCE/org.freedesktop.FileManager1.service
 SHARED_SERVICE_TARGET=$XDG_DATA/dbus-1/services/org.freedesktop.FileManager1.service
@@ -67,6 +68,28 @@ atomic_copy() {
   cp -- "$source" "$tmp"
   chmod --reference="$source" "$tmp"
   mv -f -- "$tmp" "$target"
+}
+record_completed_step() {
+  local step=$1 managed_hash=$2
+  atomic_text "$TRANSACTION_DIR/$step.completed-hash" "$managed_hash"
+  if [[ ${OMAFILES_TEST_INTERRUPT_AFTER:-} == "$step" ]]; then
+    printf 'OmaFiles integration test interruption after %s.\n' "$step" >&2
+    exit 86
+  fi
+}
+step_was_managed() {
+  [[ -f $STATE_DIR/enabled || -f $TRANSACTION_DIR/$1.completed-hash ]]
+}
+managed_step_hash() {
+  local step=$1 persistent=$2 completed
+  completed=$TRANSACTION_DIR/$step.completed-hash
+  if [[ -f $STATE_DIR/enabling && -f $completed ]]; then
+    cat "$completed"
+  elif [[ -f $persistent ]]; then
+    cat "$persistent"
+  else
+    printf 'unknown\n'
+  fi
 }
 
 static_status=0
@@ -253,18 +276,27 @@ enable_integration() {
   command -v xdg-mime >/dev/null 2>&1 || { echo 'OmaFiles integration requires xdg-mime.' >&2; exit 1; }
   command -v python3 >/dev/null 2>&1 || { echo 'OmaFiles integration requires python3.' >&2; exit 1; }
   mkdir -p "$STATE_DIR"
-  check_or_repair_static 1
-  [[ $static_status == 0 && -f $SHARED_SERVICE_SOURCE ]] || exit 1
   capture_baseline
 
-  local changed=0 incomplete=0 current prior i path managed_hash
+  # This marker is durable before the first integration mutation. Each completed
+  # user-default mutation then records the exact bytes it owns in transaction/.
+  if [[ ! -f $STATE_DIR/enabling ]]; then
+    rm -rf -- "$TRANSACTION_DIR"
+    atomic_text "$STATE_DIR/enabling" 1
+  fi
+  check_or_repair_static 1
+  [[ $static_status == 0 && -f $SHARED_SERVICE_SOURCE ]] || exit 1
+
+  local changed=0 incomplete=0 current prior i path managed_hash hash
   current=$(xdg-mime query default inode/directory 2>/dev/null || true)
   prior=$(cat "$STATE_DIR/baseline/mime-handler")
   if [[ $current == "$APP_ID.desktop" ]]; then
-    :
+    atomic_text "$STATE_DIR/mimeapps.managed-hash" "$(current_file_hash "$MIMEAPPS_PATH")"
   elif [[ ! -f $STATE_DIR/enabled && $current == "$prior" ]]; then
     xdg-mime default "$APP_ID.desktop" inode/directory
-    atomic_text "$STATE_DIR/mimeapps.managed-hash" "$(current_file_hash "$MIMEAPPS_PATH")"
+    hash=$(current_file_hash "$MIMEAPPS_PATH")
+    atomic_text "$STATE_DIR/mimeapps.managed-hash" "$hash"
+    record_completed_step mime "$hash"
     changed=1
   else
     printf 'Preserving user MIME choice: %s\n' "${current:-<none>}" >&2
@@ -288,57 +320,65 @@ enable_integration() {
       continue
     fi
     write_managed_portal "$path" "${PORTAL_DEFAULTS[$i]}"
-    atomic_text "$managed_hash" "$(hash_file "$path")"
+    hash=$(hash_file "$path")
+    atomic_text "$managed_hash" "$hash"
+    record_completed_step "portal-$i" "$hash"
     changed=1
   done
   if manage_shared_service; then
+    if (( shared_changed != 0 )); then
+      hash=$(cat "$STATE_DIR/shared-service.managed-hash")
+      record_completed_step shared-service "$hash"
+    fi
     changed=$((changed + shared_changed))
   else
     incomplete=1
   fi
 
-  atomic_text "$STATE_DIR/enabled" 1
   reload_desktop_services
   (( changed == 0 )) || restart_portal
   if (( incomplete != 0 )); then
     printf 'OmaFiles user integration enable is incomplete.\n' >&2
     return 1
   fi
+  atomic_text "$STATE_DIR/enabled" 1
+  rm -f -- "$STATE_DIR/enabling"
+  rm -rf -- "$TRANSACTION_DIR"
   printf 'OmaFiles user integration enabled.\n'
 }
 
 disable_integration() {
   command -v xdg-mime >/dev/null 2>&1 || { echo 'OmaFiles integration requires xdg-mime.' >&2; exit 1; }
-  if [[ ! -f $STATE_DIR/enabled ]]; then
+  if [[ ! -f $STATE_DIR/enabled && ! -f $STATE_DIR/enabling ]]; then
     printf 'OmaFiles user integration is already disabled.\n'
     return
   fi
-  local changed=0 incomplete=0 current prior i path managed_hash
+  local changed=0 incomplete=0 current i path managed_hash expected_hash
   current=$(xdg-mime query default inode/directory 2>/dev/null || true)
-  prior=$(cat "$STATE_DIR/baseline/mime-handler")
-  if [[ $current == "$APP_ID.desktop" ]]; then
-    if [[ ! -f $STATE_DIR/mimeapps.managed-hash \
-          || $(current_file_hash "$MIMEAPPS_PATH") != "$(cat "$STATE_DIR/mimeapps.managed-hash")" ]]; then
-      printf 'Preserving user-edited MIME configuration: %s\n' "$MIMEAPPS_PATH" >&2
-      incomplete=1
-    elif [[ -n $prior ]]; then
-      xdg-mime default "$prior" inode/directory
-      changed=1
-    else
+  managed_hash=$STATE_DIR/mimeapps.managed-hash
+  if step_was_managed mime; then
+    expected_hash=$(managed_step_hash mime "$managed_hash")
+    if file_matches_baseline mimeapps "$MIMEAPPS_PATH"; then
+      :
+    elif [[ $(current_file_hash "$MIMEAPPS_PATH") == "$expected_hash" ]]; then
       restore_file_baseline mimeapps "$MIMEAPPS_PATH"
       changed=1
+    else
+      printf 'Preserving user-edited MIME configuration: %s (%s)\n' \
+        "$MIMEAPPS_PATH" "${current:-<none>}" >&2
+      incomplete=1
     fi
-  elif [[ $current != "$prior" ]]; then
-    printf 'Preserving user MIME choice: %s\n' "${current:-<none>}" >&2
   fi
 
   for ((i=0; i<${#PORTAL_PATHS[@]}; i++)); do
+    step_was_managed "portal-$i" || continue
     path=${PORTAL_PATHS[$i]}
     managed_hash=$STATE_DIR/portal-$i.managed-hash
+    expected_hash=$(managed_step_hash "portal-$i" "$managed_hash")
     if file_matches_baseline "portal-$i" "$path"; then
       continue
     fi
-    if [[ -f $managed_hash && $(current_file_hash "$path") == "$(cat "$managed_hash")" ]]; then
+    if [[ $(current_file_hash "$path") == "$expected_hash" ]]; then
       restore_file_baseline "portal-$i" "$path"
       changed=1
     else
@@ -347,25 +387,28 @@ disable_integration() {
     fi
   done
 
-  managed_hash=$STATE_DIR/shared-service.managed-hash
-  if file_matches_baseline shared-service "$SHARED_SERVICE_TARGET"; then
-    :
-  elif [[ -f $managed_hash \
-          && $(current_file_hash "$SHARED_SERVICE_TARGET") == "$(cat "$managed_hash")" ]]; then
-    restore_file_baseline shared-service "$SHARED_SERVICE_TARGET"
-    changed=1
-  else
-    printf 'Preserving user-edited shared D-Bus service: %s\n' "$SHARED_SERVICE_TARGET" >&2
-    incomplete=1
+  if step_was_managed shared-service; then
+    managed_hash=$STATE_DIR/shared-service.managed-hash
+    expected_hash=$(managed_step_hash shared-service "$managed_hash")
+    if file_matches_baseline shared-service "$SHARED_SERVICE_TARGET"; then
+      :
+    elif [[ $(current_file_hash "$SHARED_SERVICE_TARGET") == "$expected_hash" ]]; then
+      restore_file_baseline shared-service "$SHARED_SERVICE_TARGET"
+      changed=1
+    else
+      printf 'Preserving user-edited shared D-Bus service: %s\n' "$SHARED_SERVICE_TARGET" >&2
+      incomplete=1
+    fi
   fi
 
   reload_desktop_services
   (( changed == 0 )) || restart_portal
   if (( incomplete != 0 )); then
-    printf 'OmaFiles user integration disable is incomplete; enabled state retained.\n' >&2
+    printf 'OmaFiles user integration disable is incomplete; integration state retained.\n' >&2
     return 1
   fi
-  rm -f -- "$STATE_DIR/enabled"
+  rm -f -- "$STATE_DIR/enabled" "$STATE_DIR/enabling"
+  rm -rf -- "$TRANSACTION_DIR"
   printf 'OmaFiles user integration disabled.\n'
 }
 

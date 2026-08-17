@@ -27,6 +27,43 @@ QtObject {
           done(JSON.stringify(uris) === JSON.stringify(expected), JSON.stringify(uris))
         })
 
+        sc.add("FileManager1 ShowItems selects; ShowItemProperties opens once", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          PropertiesState.propertiesOpen = false
+          var beforeItems = PropertiesState.propertiesRequestId
+          var itemsPayload = JSON.stringify({
+            kind: "file-manager", action: "show-items", folder: sc.listDir,
+            basenames: ["alpha.txt"]
+          })
+          c.open(itemsPayload)
+          sc._poll(function () {
+            var entries = SelectionState.selectedEntries()
+            return entries.length === 1 && entries[0].name === "alpha.txt"
+          }, function (itemsSelected) {
+            var itemsOnlySelected = itemsSelected && !PropertiesState.propertiesOpen
+              && PropertiesState.propertiesRequestId === beforeItems
+            PropertiesState.propertiesOpen = false
+            var beforeProperties = PropertiesState.propertiesRequestId
+            var propertiesPayload = JSON.stringify({
+              kind: "file-manager", action: "show-properties", folder: sc.listDir,
+              basenames: ["beta.txt"]
+            })
+            c.open(propertiesPayload)
+            sc._poll(function () {
+              return PropertiesState.propertiesOpen
+                && PropertiesState.propertiesRequestId === beforeProperties + 1
+            }, function (propertiesOpened) {
+              var entries = SelectionState.selectedEntries()
+              var rightSelection = entries.length === 1 && entries[0].name === "beta.txt"
+              PropertiesState.propertiesOpen = false
+              done(itemsOnlySelected && propertiesOpened && rightSelection,
+                   "itemsOnly=" + itemsOnlySelected + " propertiesOnce=" + propertiesOpened
+                     + " selected=" + (entries.length ? entries[0].name : "<none>"))
+            })
+          })
+        })
+
         sc.add("Picker session never writes normal window geometry", function (done) {
           var component = Qt.createComponent("../../../app/HostAdapter.qml")
           if (component.status !== Component.Ready) { done(false, component.errorString()); return }

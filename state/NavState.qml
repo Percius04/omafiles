@@ -69,6 +69,10 @@ QtObject {
   // Names to highlight as soon as the next listing finishes (ShowItems case
   // of org.freedesktop.FileManager1: several URIs of a folder at once).
   property var pendingSelectNames: []
+  // FileManager1 action to apply once the asynchronous listing has selected
+  // pendingSelectNames. Empty and show-items only select; show-properties also
+  // opens Properties exactly once after selection is ready.
+  property string pendingFileManagerAction: ""
   // Counter that forces a refresh of the background panels (signal, not data):
   // ActionEngine/RenameOps/SearchOps increment it after mutating disk.
   property int refreshTick: 0

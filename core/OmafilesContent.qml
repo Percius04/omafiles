@@ -41,20 +41,25 @@ Item {
     root.opened = true
 
     var pickerPayload = null
+    var fileManagerPayload = null
     if (payload && payload.charAt(0) === "{") {
       try {
         var decoded = JSON.parse(payload)
         if (decoded.kind === "picker") pickerPayload = decoded
+        else if (decoded.kind === "file-manager") fileManagerPayload = decoded
       } catch (e) {
         pickerPayload = null
+        fileManagerPayload = null
       }
     }
 
-    var nlIdx = !pickerPayload && payload ? payload.indexOf("\n") : -1
-    var folderPart = pickerPayload ? String(pickerPayload.folder || "")
+    var structuredPayload = pickerPayload || fileManagerPayload
+    var nlIdx = !structuredPayload && payload ? payload.indexOf("\n") : -1
+    var folderPart = structuredPayload ? String(structuredPayload.folder || "")
       : (nlIdx >= 0 ? payload.substring(0, nlIdx) : payload)
-    var selectPart = !pickerPayload && nlIdx >= 0 ? payload.substring(nlIdx + 1) : ""
-    var selectNames = selectPart ? selectPart.split("\x1f") : []
+    var selectPart = !structuredPayload && nlIdx >= 0 ? payload.substring(nlIdx + 1) : ""
+    var selectNames = fileManagerPayload ? fileManagerPayload.basenames.slice()
+      : (selectPart ? selectPart.split("\x1f") : [])
 
     if (pickerPayload) {
       var modes = ["open-file", "open-dir", "save-file", "save-files"]
@@ -87,6 +92,8 @@ Item {
 
     var targetPath = (folderPart && folderPart.charAt(0) === "/") ? folderPart : ""
 
+    NavState.pendingFileManagerAction = fileManagerPayload
+      ? String(fileManagerPayload.action || "") : ""
     if (targetPath) NavState.pendingSelectNames = selectNames
 
     var restoringSession = false

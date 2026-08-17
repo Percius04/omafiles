@@ -13,6 +13,7 @@
 #include <QJsonValue>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QLockFile>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfWriter>
@@ -21,12 +22,15 @@
 #include <QObject>
 #include <QQuickStyle>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <cstdio>
+#include <memory>
 #include <utility>
 #include <unistd.h>
 
@@ -113,6 +117,37 @@ bool validPickerBasename(const QString &name) {
          !name.contains(QChar::Null);
 }
 
+bool validatedFileManagerPayload(const QString &payload,
+                                 QJsonObject *result = nullptr) {
+  QJsonParseError error;
+  const QJsonDocument document = QJsonDocument::fromJson(payload.toUtf8(), &error);
+  if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
+  const QJsonObject object = document.object();
+  static const QStringList keys{
+      QStringLiteral("action"), QStringLiteral("basenames"),
+      QStringLiteral("folder"), QStringLiteral("kind")};
+  const QString action = object.value(QStringLiteral("action")).toString();
+  const QString folder = object.value(QStringLiteral("folder")).toString();
+  const QJsonValue namesValue = object.value(QStringLiteral("basenames"));
+  if (object.keys() != keys ||
+      object.value(QStringLiteral("kind")).toString() !=
+          QLatin1String("file-manager") ||
+      (action != QLatin1String("show-items") &&
+       action != QLatin1String("show-folders") &&
+       action != QLatin1String("show-properties")) ||
+      !QDir::isAbsolutePath(folder) || QDir::cleanPath(folder) != folder ||
+      folder.contains(QChar::Null) || !namesValue.isArray()) {
+    return false;
+  }
+  const QJsonArray names = namesValue.toArray();
+  if ((action == QLatin1String("show-folders")) != names.isEmpty()) return false;
+  for (const QJsonValue &name : names) {
+    if (!name.isString() || !validPickerBasename(name.toString())) return false;
+  }
+  if (result) *result = object;
+  return true;
+}
+
 // Picker payloads use a strict, non-secret JSON schema. This classifier is
 // shared by command routing and the test seam so picker processes can never
 // contact or claim the normal single-instance socket.
@@ -165,7 +200,9 @@ QString normalizePayload(const QString &arg) {
   if (arg.isEmpty()) return QString();
   if (arg.startsWith(QLatin1Char('/'))) return arg;
   if (arg.startsWith(QLatin1Char('{')))
-    return validatedPickerPayload(arg) ? arg : QString();
+    return (validatedPickerPayload(arg) || validatedFileManagerPayload(arg))
+               ? arg
+               : QString();
 
   QString path;
   if (arg.startsWith(QLatin1String("file://"))) {
@@ -242,6 +279,8 @@ class SingleInstance : public QObject {
  public:
   using QObject::QObject;
 
+  enum class StartResult { Listening, Delivered, Failed };
+
   // Tries to deliver `payload` to an already-running instance. Returns true if
   // it succeeded (this invocation must exit without opening a window).
   static bool deliverToRunning(const QString &payload) {
@@ -257,13 +296,45 @@ class SingleInstance : public QObject {
     return true;
   }
 
-  // Starts listening. removeServer() cleans up an orphan socket from a
-  // previous instance that died without closing it.
-  bool listen() {
-    QLocalServer::removeServer(instanceSocketName());
+  // The short-lived startup lock serializes contenders until the winner is
+  // listening. The winner then keeps the owner lock for its full lifetime.
+  // QLockFile removes a dead process's stale lock, so only a process holding the
+  // owner lock may remove an orphan socket. A live owner can never be unlinked.
+  StartResult startOrDeliver(const QString &payload) {
+    const QString runtimeDir = QStandardPaths::writableLocation(
+        QStandardPaths::RuntimeLocation);
+    if (runtimeDir.isEmpty()) return StartResult::Failed;
+    const QDir runtime(runtimeDir);
+    QLockFile startupLock(runtime.filePath(
+        instanceSocketName() + QStringLiteral(".startup.lock")));
+    if (!startupLock.lock()) return StartResult::Failed;
+
+    if (deliverToRunning(payload)) return StartResult::Delivered;
+
+    auto ownerLock = std::make_unique<QLockFile>(runtime.filePath(
+        instanceSocketName() + QStringLiteral(".owner.lock")));
+    if (!ownerLock->tryLock()) {
+      // The startup lock excludes a new contender. A remaining owner lock means
+      // an established live server; unresolved delivery is fatal.
+      return deliverToRunning(payload) ? StartResult::Delivered
+                                       : StartResult::Failed;
+    }
+
+    // Support a server started by an older OmaFiles build that predates the
+    // owner lock. Never remove its socket if it still accepts requests.
+    if (deliverToRunning(payload)) return StartResult::Delivered;
     connect(&m_server, &QLocalServer::newConnection, this,
             &SingleInstance::onConnection);
-    return m_server.listen(instanceSocketName());
+    if (!m_server.listen(instanceSocketName())) {
+      if (m_server.serverError() != QAbstractSocket::AddressInUseError)
+        return StartResult::Failed;
+      if (deliverToRunning(payload)) return StartResult::Delivered;
+      if (!QLocalServer::removeServer(instanceSocketName()))
+        return StartResult::Failed;
+      if (!m_server.listen(instanceSocketName())) return StartResult::Failed;
+    }
+    m_ownerLock = std::move(ownerLock);
+    return StartResult::Listening;
   }
 
  signals:
@@ -281,6 +352,7 @@ class SingleInstance : public QObject {
 
  private:
   QLocalServer m_server;
+  std::unique_ptr<QLockFile> m_ownerLock;
 };
 
 // Generates the deterministic test files the selfcheck needs.
@@ -488,11 +560,61 @@ int runSelfCheck(int argc, char *argv[]) {
 int runInstanceServerTest(int argc, char *argv[], const QString &readyPath) {
   QCoreApplication app(argc, argv);
   SingleInstance instance;
-  if (!instance.listen()) return 2;
+  if (instance.startOrDeliver(QString()) != SingleInstance::StartResult::Listening)
+    return 2;
   QFile ready(readyPath);
   if (!ready.open(QIODevice::WriteOnly) || ready.write("ready\n") < 0) return 2;
   ready.close();
   QTimer::singleShot(10000, &app, &QCoreApplication::quit);
+  return app.exec();
+}
+
+int runInstanceOwnerLockTest(int argc, char *argv[], const QString &readyPath) {
+  QCoreApplication app(argc, argv);
+  const QString runtimeDir = QStandardPaths::writableLocation(
+      QStandardPaths::RuntimeLocation);
+  if (runtimeDir.isEmpty()) return 2;
+  QLockFile ownerLock(QDir(runtimeDir).filePath(
+      instanceSocketName() + QStringLiteral(".owner.lock")));
+  if (!ownerLock.lock()) return 2;
+  QFile ready(readyPath);
+  if (!ready.open(QIODevice::WriteOnly) || ready.write("ready\n") < 0) return 2;
+  ready.close();
+  return app.exec();
+}
+
+int runSimultaneousInstanceTest(int argc, char *argv[], const QString &readyPath,
+                                const QString &gatePath, const QString &logPath,
+                                const QString &payload) {
+  QCoreApplication app(argc, argv);
+  QFile ready(readyPath);
+  if (!ready.open(QIODevice::WriteOnly) || ready.write("ready\n") < 0) return 2;
+  ready.close();
+  while (!QFileInfo::exists(gatePath)) QThread::msleep(5);
+
+  SingleInstance instance;
+  const auto result = instance.startOrDeliver(payload);
+  if (result == SingleInstance::StartResult::Failed) return 2;
+  if (result == SingleInstance::StartResult::Delivered) return 0;
+
+  int routed = 0;
+  const auto record = [&](const QString &request) {
+    QFile log(logPath);
+    if (!log.open(QIODevice::WriteOnly | QIODevice::Append)) {
+      QCoreApplication::exit(2);
+      return;
+    }
+    const QByteArray line = QByteArray::number(QCoreApplication::applicationPid()) +
+                            '\t' + request.toUtf8() + '\n';
+    if (log.write(line) != line.size()) {
+      QCoreApplication::exit(2);
+      return;
+    }
+    log.close();
+    if (++routed == 2) QCoreApplication::quit();
+  };
+  QObject::connect(&instance, &SingleInstance::received, &app, record);
+  record(payload);
   return app.exec();
 }
 
@@ -537,8 +659,15 @@ int runNormal(int argc, char *argv[]) {
   app.setDesktopFileName(isPicker ? QStringLiteral("omafiles-picker")
                                   : QStringLiteral("omafiles"));
 
-  // A picker neither delivers to nor listens on the normal socket.
-  if (!isPicker && SingleInstance::deliverToRunning(payload)) return 0;
+  SingleInstance instance;
+  // A picker neither delivers to nor listens on the normal socket. Normal
+  // startup is serialized before a window is created; unresolved ownership is
+  // fatal rather than opening a second independent normal window.
+  if (!isPicker) {
+    const auto result = instance.startOrDeliver(payload);
+    if (result == SingleInstance::StartResult::Delivered) return 0;
+    if (result == SingleInstance::StartResult::Failed) return 2;
+  }
 
   QByteArray pickerToken;
   if (isPicker) {
@@ -565,11 +694,6 @@ int runNormal(int argc, char *argv[]) {
   qputenv("OMAFILES_RESOURCE_DIR", resourceDir.toLocal8Bit());
   addImportPaths(engine, resourceDir);
 
-  SingleInstance instance;
-  if (!isPicker) {
-    instance.listen();  // if a normal-instance race took the name, this window
-                        // simply does not receive later summons.
-  }
   engine.rootContext()->setContextProperty("SingleInstance", &instance);
   engine.rootContext()->setContextProperty("PickerResponder", &pickerResponder);
   engine.rootContext()->setContextProperty("omafilesInitialPayload", payload);
@@ -601,6 +725,17 @@ int main(int argc, char *argv[]) {
     if (argument == QLatin1String("--selfcheck")) return runSelfCheck(argc, argv);
     if (argument == QLatin1String("--test-instance-server") && i + 1 < argc)
       return runInstanceServerTest(argc, argv, QString::fromLocal8Bit(argv[i + 1]));
+    if (argument == QLatin1String("--test-instance-owner-lock") && i + 1 < argc)
+      return runInstanceOwnerLockTest(argc, argv,
+                                      QString::fromLocal8Bit(argv[i + 1]));
+    if (argument == QLatin1String("--test-file-manager-payload") && i + 1 < argc)
+      return validatedFileManagerPayload(QString::fromLocal8Bit(argv[i + 1])) ? 0 : 1;
+    if (argument == QLatin1String("--test-simultaneous-instance") && i + 4 < argc)
+      return runSimultaneousInstanceTest(
+          argc, argv, QString::fromLocal8Bit(argv[i + 1]),
+          QString::fromLocal8Bit(argv[i + 2]),
+          QString::fromLocal8Bit(argv[i + 3]),
+          QString::fromLocal8Bit(argv[i + 4]));
   }
   return runNormal(argc, argv);
 }
