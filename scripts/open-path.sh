@@ -34,8 +34,17 @@ if [[ -n "$arg" ]]; then
   [[ -d "$path" ]] || path=""
 fi
 
-# Launches the standalone Qt6 binary. If Omafiles is already open, its
-# single instance receives the path and navigates to it in a new tab
-# bringing the window to the front; if not, it opens it. Empty path = normal
-# startup (restores the previous session).
-exec "$HOME/.local/bin/omafiles" "$path"
+# Launches whichever installation is active. The PATH lookup supports package
+# managers such as Nix; the fallback preserves the direct CMake installation.
+# If Omafiles is already open, its single instance receives the path and
+# navigates to it in a new tab, bringing the window to the front.
+omafiles_bin="$(command -v omafiles || true)"
+if [[ -z "$omafiles_bin" && -x "$HOME/.local/bin/omafiles" ]]; then
+  omafiles_bin="$HOME/.local/bin/omafiles"
+fi
+if [[ -z "$omafiles_bin" ]]; then
+  printf 'omafiles: executable not found in PATH or ~/.local/bin\n' >&2
+  exit 127
+fi
+
+exec "$omafiles_bin" "$path"
