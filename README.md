@@ -1,6 +1,6 @@
 # Omafiles
 
-A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.2`). It is not an Omarchy shell plugin and does not wrap Nautilus, Dolphin, or Thunar. It runs as a normal tileable desktop window and uses Omarchy's `qs.Commons` and `qs.Ui` design system.
+A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.3`). It is not an Omarchy shell plugin and does not wrap Nautilus, Dolphin, or Thunar. It runs as a normal tileable desktop window and uses Omarchy's `qs.Commons` and `qs.Ui` design system.
 
 ## Why
 
@@ -288,15 +288,16 @@ Run the complete tracked gate with:
 cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
+cmake --build build --target asan-check
 ```
 
-The v0.9.2 gate includes native data-safety tests, Python portal tests, isolated integration lifecycle tests, installed-layout checks, and **96 source plus 96 installed-tree selfchecks**. The installed-tree test stages the app and forces it to run without source-tree resources.
+The v0.9.3 gate includes **82 native data-safety checks**, **28 FileChooser tests**, **4 FileManager1 tests**, isolated integration and simultaneous-instance tests, installed-layout checks, and **106 source plus 106 installed-tree selfchecks**. The installed-tree test stages the app and forces it to run without source-tree resources. `asan-check` rebuilds the native safety target with AddressSanitizer and fails on sanitizer errors.
 
 No deterministic performance release gate is currently claimed. `tests/check-benchmark-status.sh` exits nonzero until a maintained benchmark exists.
 
 ## Status
 
-`v0.9.2` is validated for local use. The repository tag and package recipe must identify the same tested source before public release.
+`v0.9.3` is validated for local use. The repository tag and package recipe must identify the same tested source before public release.
 
 ## License
 

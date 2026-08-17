@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(omafiles VERSION 0.9.2 LANGUAGES CXX)
+project(omafiles VERSION 0.9.3 LANGUAGES CXX)
 
 include(CTest)
 

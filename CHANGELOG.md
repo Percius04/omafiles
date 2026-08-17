@@ -1,5 +1,17 @@
 # OmaFiles Changelog
 
+## [0.9.3] - 2026-08-17
+
+* Makes restore, overwrite commit, and recursive deletion race-safe with no-replace and descriptor-relative Linux APIs.
+* Tracks the exact trash payload through undo and redo, and reports post-commit cleanup as warnings.
+* Uses exclusive native file and folder creation; existing entries cannot be replaced.
+* Uses confirmed native results for bulk rename history and no-clobber archive operations.
+* Makes integration enable recoverable after interruption and authenticates portal frontend request ownership.
+* Serializes simultaneous app startup without unlinking a live single-instance socket.
+* Implements FileChooser filters, current filter, and choices, plus distinct FileManager1 properties behavior.
+* Adds tracked AddressSanitizer and package `check()` gates.
+* Current release gate: 82 native safety checks, 28 FileChooser tests, 4 FileManager1 tests, 106 source selfchecks, and 106 installed-tree selfchecks.
+
 ## [0.9.2] - 2026-08-17
 
 * Makes no-overwrite copy, move, and rename commits atomic with Linux `renameat2(RENAME_NOREPLACE)`.
