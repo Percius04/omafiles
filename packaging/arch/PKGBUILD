@@ -1,7 +1,8 @@
 # Maintainer: Josema <josema@example.com>
 pkgname=omafiles
-pkgver=0.9.0
+pkgver=0.9.1
 pkgrel=1
+pkgcommit=fe11a2abb886bf9a1635212b23da2122dff8dd59
 pkgdesc="A high-performance, native Qt6 file manager designed around the DHH philosophy"
 arch=('x86_64')
 url="https://github.com/Percius04/omafiles"
@@ -24,12 +25,14 @@ optdepends=('desktop-file-utils: refresh the desktop entry cache after opt-in in
             '7zip: browse 7z archives'
             'unrar: browse RAR archives'
             'plocate: indexed global search')
-makedepends=('cmake' 'ninja' 'qt6-tools')
-source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Percius04/omafiles/archive/v${pkgver}.tar.gz")
-sha256sums=('307f60a97a9bfe2360ddb1a5f008ea0dee9b12d2c67b02e4126d2d851e6431e2') # verified 2026-08-17 against the corrected URL (the old one pointed at github.com/omafiles/omafiles, which 404s)
+makedepends=('cmake' 'ninja' 'git')
+# Pin the tested v0.9.1 source commit. Unlike the old recipe, this cannot
+# silently package an earlier tag while release fixes live only on master.
+source=("${pkgname}::git+${url}.git#commit=${pkgcommit}")
+sha256sums=('SKIP') # VCS source is immutable through the full commit pin above.
 
 build() {
-  cd "${pkgname}-${pkgver}"
+  cd "${pkgname}"
   # CMAKE_INSTALL_PREFIX alone does NOT control where this project installs --
   # OMAFILES_{BIN,DATA,QML}_INSTALL_DIR are separate CACHE variables that
   # default to $HOME/.local/... for the documented no-root per-user dev
@@ -46,6 +49,6 @@ build() {
 }
 
 package() {
-  cd "${pkgname}-${pkgver}"
+  cd "${pkgname}"
   DESTDIR="${pkgdir}" cmake --install build
 }
