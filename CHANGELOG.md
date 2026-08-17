@@ -1,5 +1,13 @@
 # OmaFiles Changelog
 
+## [0.9.2] - 2026-08-17
+
+* Makes no-overwrite copy, move, and rename commits atomic with Linux `renameat2(RENAME_NOREPLACE)`.
+* Adds race regressions that prove a destination created during commit is never replaced.
+* Removes duplicate picker validation and dead chmod/directory state while preserving trust-boundary checks.
+* Clears the remaining strict compiler warnings in `NetworkResolver`.
+* Current release gate: 63 native safety checks, 11 portal helper tests, and 96 source plus 96 installed-tree selfchecks.
+
 ## [0.9.1] - 2026-08-17
 
 This release hardens data safety, asynchronous action state, trash identity, and desktop integration.

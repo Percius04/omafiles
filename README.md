@@ -1,6 +1,6 @@
 # Omafiles
 
-A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.1`). It is not an Omarchy shell plugin and does not wrap Nautilus, Dolphin, or Thunar. It runs as a normal tileable desktop window and uses Omarchy's `qs.Commons` and `qs.Ui` design system.
+A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v0.9.2`). It is not an Omarchy shell plugin and does not wrap Nautilus, Dolphin, or Thunar. It runs as a normal tileable desktop window and uses Omarchy's `qs.Commons` and `qs.Ui` design system.
 
 ## Why
 
@@ -289,13 +289,13 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The v0.9.1 gate includes native data-safety tests, Python portal tests, isolated integration lifecycle tests, installed-layout checks, and **96 source plus 96 installed-tree selfchecks**. The installed-tree test stages the app and forces it to run without source-tree resources.
+The v0.9.2 gate includes native data-safety tests, Python portal tests, isolated integration lifecycle tests, installed-layout checks, and **96 source plus 96 installed-tree selfchecks**. The installed-tree test stages the app and forces it to run without source-tree resources.
 
 No deterministic performance release gate is currently claimed. `tests/check-benchmark-status.sh` exits nonzero until a maintained benchmark exists.
 
 ## Status
 
-`v0.9.1` is validated for local use. The repository tag and package recipe must identify the same tested source before public release.
+`v0.9.2` is validated for local use. The repository tag and package recipe must identify the same tested source before public release.
 
 ## License
 
