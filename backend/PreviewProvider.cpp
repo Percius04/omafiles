@@ -12,6 +12,14 @@
 
 PreviewProvider::PreviewProvider(QObject *parent) : QObject(parent) {}
 
+PreviewProvider::~PreviewProvider() {
+  // Marks the object as dead under the lock: a worker that has not yet
+  // delivered will see alive=false and will not touch this already-destroyed
+  // object.
+  std::lock_guard<std::mutex> lk(m_life->mtx);
+  m_life->alive = false;
+}
+
 QString PreviewProvider::highlightCode(const QString &source, const QString &extensionOrFilename) {
   return SyntaxHighlighter::highlight(source, extensionOrFilename);
 }
@@ -27,11 +35,18 @@ QVariantList PreviewProvider::audioMetadata(const QString &path) {
 
 void PreviewProvider::requestAudio(const QString &path) {
   const quint64 gen = ++m_audioGen;
+  auto life = m_life; // copy of the control block, outlives the singleton
   QThreadPool::globalInstance()->start(QRunnable::create(
-      [this, path, gen]() {
+      [this, life, path, gen]() {
         const MediaInfo::Metadata meta = MediaInfo::extract(path);
         const QVariantList info = MediaInfo::toVariantList(meta);
 
+        // Safe delivery: the destructor takes this same lock, so either we see
+        // alive=false (and do not touch the dead singleton) or we hold it and
+        // the destructor waits for us to release.
+        std::lock_guard<std::mutex> lk(life->mtx);
+        if (!life->alive)
+          return;
         QMetaObject::invokeMethod(
             this,
             [this, path, info, gen]() {
@@ -72,8 +87,9 @@ QVariantMap PreviewProvider::info(const QString &path) {
 
 void PreviewProvider::requestText(const QString &path, int maxBytes) {
   const quint64 gen = ++m_gen;
+  auto life = m_life; // copy of the control block, outlives the singleton
   QThreadPool::globalInstance()->start(QRunnable::create(
-      [this, path, maxBytes, gen]() {
+      [this, life, path, maxBytes, gen]() {
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly))
           return; // unreadable: does not emit (the panel keeps the previous/empty state)
@@ -104,6 +120,10 @@ void PreviewProvider::requestText(const QString &path, int maxBytes) {
           highlighted = SyntaxHighlighter::highlight(content, path);
         }
 
+        // Safe delivery: see requestAudio() / the Life guard in the header.
+        std::lock_guard<std::mutex> lk(life->mtx);
+        if (!life->alive)
+          return;
         QMetaObject::invokeMethod(
             this,
             [this, path, content, highlighted, encoding, bytes, lines, truncated, gen]() {
