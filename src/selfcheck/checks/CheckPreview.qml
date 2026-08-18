@@ -51,16 +51,36 @@ QtObject {
             sc._sh(["bash", sc.resourceRoot + "/scripts/runtime/thumbnail-video.sh", video, dest], function () {
               var check = "test -L " + sc._q(dest) + " && echo DEST_IS_SYMLINK; "
                 + "test -e " + sc._q(victimTarget) + " && echo VICTIM_CREATED; "
-                + "test -f " + sc._q(dest) + " && echo DEST_IS_REGULAR_FILE"
+                + "test -f " + sc._q(dest) + " && echo DEST_IS_REGULAR_FILE; "
+                + "command -v ffmpegthumbnailer >/dev/null && echo HAVE_THUMBNAILER"
               sc._sh(["bash", "-c", check], function (checkResult) {
                 var out = String(checkResult.stdout)
                 var stillSymlink = out.indexOf("DEST_IS_SYMLINK") >= 0
                 var victimCreated = out.indexOf("VICTIM_CREATED") >= 0
                 var destIsRegular = out.indexOf("DEST_IS_REGULAR_FILE") >= 0
-                var safe = !stillSymlink && !victimCreated && destIsRegular
+                var haveThumbnailer = out.indexOf("HAVE_THUMBNAILER") >= 0
+                // The two SECURITY properties -- the planted symlink was
+                // destroyed rather than written through, and its target was
+                // never created -- hold whether or not a thumbnail was
+                // actually produced. destIsRegular is a FUNCTIONAL check on
+                // top, and it can only be true if ffmpegthumbnailer is
+                // installed; it is an optional dependency (README), so
+                // requiring it unconditionally made this check report
+                // "VULNERABLE" on any machine without it, while the machine
+                // was in fact perfectly safe.
+                var secure = !stillSymlink && !victimCreated
+                var safe = secure && (destIsRegular || !haveThumbnailer)
                 done(safe, safe
-                  ? "dest is a genuine regular file; the dangling symlink's target was never created"
-                  : "VULNERABLE: dest still a symlink=" + stillSymlink + " victim target created=" + victimCreated)
+                  ? (destIsRegular
+                     ? "dest is a genuine regular file; the dangling symlink's target was never created"
+                     : "symlink safety verified (planted link destroyed, target never created); "
+                       + "thumbnail write not exercised -- ffmpegthumbnailer not installed")
+                  : (secure
+                     ? "thumbnail-video.sh did not produce a regular file at dest despite "
+                       + "ffmpegthumbnailer being installed (symlink safety itself held)"
+                     : "VULNERABLE: dest still a symlink=" + stillSymlink
+                       + " victim target created=" + victimCreated
+                       + " dest is a regular file=" + destIsRegular))
               })
             })
           })
