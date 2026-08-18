@@ -42,6 +42,10 @@ QtObject {
     var NAMED_KEYS = {
       "return": Qt.Key_Return, "backspace": Qt.Key_Backspace, "space": Qt.Key_Space,
       "/": Qt.Key_Slash, ":": Qt.Key_Colon, "?": Qt.Key_Question, "\\": Qt.Key_Backslash,
+      // Must be named here rather than falling through to qtKeyFor()'s
+      // single-character arithmetic (Qt.Key_A + charCode - 'a'), which for
+      // "." yields Qt.Key_A - 51 -- a nonsense code that resolves to null.
+      ".": Qt.Key_Period,
       "down": Qt.Key_Down, "up": Qt.Key_Up, "left": Qt.Key_Left, "right": Qt.Key_Right,
       "f2": Qt.Key_F2, "f5": Qt.Key_F5, "delete": Qt.Key_Delete, "tab": Qt.Key_Tab
     }
@@ -135,6 +139,33 @@ QtObject {
           reload()
           var ok = rejected && ctrlZStillUndo && bareUNotUndo && rm.exitCode === 0
           done(ok, ok ? "fixed action ignored the override, Ctrl+Z still undoes" : "fixed action was rebound (should be impossible)")
+        })
+      })
+    })
+
+    // ---------- 3b. Punctuation keys survive the round trip ----------
+    // "." used to be unnameable: it is not in KeybindingResolver's _namedKeys,
+    // _canonicalKeyName() rejected it, and _eventKeyName() returned null for
+    // Qt.Key_Period. A user binding it in keybindings.toml got no warning and
+    // no working key -- the entry parsed to null and was dropped as invalid,
+    // which is indistinguishable from a typo. "/" is included as the control:
+    // it always worked, and must keep working.
+    sc.add("Keybindings: a punctuation key (\".\") can be bound from config", function (done) {
+      writeKb('[keybindings]\ntoggle_hidden = "."\n', function (w) {
+        if (w.exitCode !== 0) { done(false, "couldn't write config: " + w.stderr); return }
+        reload()
+        var r = resolver()
+        var accepted = KeyboardDefaults.overrides.toggle_hidden !== undefined
+        var dotWorks = r.actionFor(ev(".", "none")) === "toggle_hidden"
+        var oldCtrlHDead = r.actionFor(ev("h", "ctrl")) === null
+        var slashStillSearch = r.actionFor(ev("/", "any")) === "search"
+        removeKb(function (rm) {
+          reload()
+          var ok = accepted && dotWorks && oldCtrlHDead && slashStillSearch && rm.exitCode === 0
+          done(ok, ok
+            ? "\".\" resolved to toggle_hidden, its old Ctrl+H went dead, and \"/\" still searches"
+            : "override accepted=" + accepted + " \".\"->toggle_hidden=" + dotWorks
+              + " old Ctrl+H dead=" + oldCtrlHDead + " \"/\"->search=" + slashStillSearch)
         })
       })
     })
