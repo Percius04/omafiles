@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <memory>
+#include <mutex>
 #include <qqmlregistration.h>
 
 // C++ backend for previews. Replaces the preview panel's
@@ -21,6 +23,7 @@ class PreviewProvider : public QObject {
 
 public:
   explicit PreviewProvider(QObject *parent = nullptr);
+  ~PreviewProvider() override;
 
   // File metadata (QFileInfo + QMimeDatabase). Cheap and synchronous:
   // { name, path, size, mtime, mime, permissions ("rwxr-x---"...),
@@ -59,4 +62,17 @@ signals:
 private:
   quint64 m_gen = 0;      // generation of the last text request (cancellation)
   quint64 m_audioGen = 0; // generation of the last audio request (cancellation)
+
+  // Life guard against the dangling `this` (same pattern as
+  // DirectoryModel/FileOperations/ThumbnailProvider): the read/extract runs on
+  // the pool, but the DELIVERY does invokeMethod(this). A worker that finishes
+  // AFTER the singleton is destroyed (closing the app or the portal picker
+  // while a big file is being read) would dereference a dead QObject. The
+  // worker checks `alive` under the mutex before delivering; the destructor
+  // sets it to false under the same mutex.
+  struct Life {
+    std::mutex mtx;
+    bool alive = true;
+  };
+  std::shared_ptr<Life> m_life = std::make_shared<Life>();
 };
