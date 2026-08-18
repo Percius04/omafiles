@@ -76,6 +76,7 @@ Item {
             { key: "Ctrl+Z", action: "Undo" },
             { key: "Ctrl+Shift+Z / Ctrl+Y", action: "Redo" },
             { key: "s / Shift+S", action: "Cycle sort field / reverse order" },
+            { key: "v", action: "Cycle view (list / table / icons)" },
             { key: "Ctrl+L", action: "Edit path (Tab completes, ↑/↓ pick)" },
             { key: "Ctrl+Shift+N", action: "New folder" },
             { key: "Ctrl+N", action: "New file" },

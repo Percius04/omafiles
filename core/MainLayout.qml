@@ -236,6 +236,7 @@ Item {
                 + (SelectionState.selectedIndices.length > 1 ? " · " + SelectionState.selectedIndices.length + " selected" : "")
                 + (ClipboardState.clipboardPaths.length > 0 ? " · clipboard: " + ClipboardState.clipboardPaths.length + (ClipboardState.clipboardPaths.length === 1 ? " item" : " items") + (ClipboardState.clipboardMode === "cut" ? " (cut)" : " (copied)") : "")
                 + " · sort: " + SortState.sortLabel()
+                + " · view: " + ViewState.viewLabel()
               font.pixelSize: Style.font.subtitle
               font.family: Style.font.family
               color: Color.menu.text

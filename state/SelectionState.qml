@@ -108,20 +108,32 @@ QtObject {
 
   function updateMarqueeSelection(additive, base, measuredRowHeight) {
     var total = NavState.visibleEntries.length
-    if (total === 0 || measuredRowHeight <= 0) return
+    if (total === 0) return
 
-    var fromY = Math.min(marqueeStartY, marqueeCurrentY)
-    var toY = Math.max(marqueeStartY, marqueeCurrentY)
-
-    var firstVisible = Math.floor(fromY / measuredRowHeight)
-    var lastVisible = Math.floor(toY / measuredRowHeight)
-
-    if (firstVisible < 0) firstVisible = 0
-    if (lastVisible >= total) lastVisible = total - 1
-
-    var next = additive ? base.slice() : []
-    for (var i = firstVisible; i <= lastVisible; i++) {
-      if (next.indexOf(i) < 0) next.push(i)
+    var next
+    if (ViewState.isGrid) {
+      next = ViewState.gridIndicesInRect(
+        marqueeStartX, marqueeStartY, marqueeCurrentX, marqueeCurrentY,
+        ViewState.gridCellWidth, ViewState.gridCellHeight, ViewState.gridColumns, total)
+      if (additive) {
+        var merged = base.slice()
+        for (var g = 0; g < next.length; g++) {
+          if (merged.indexOf(next[g]) < 0) merged.push(next[g])
+        }
+        next = merged
+      }
+    } else {
+      if (measuredRowHeight <= 0) return
+      var fromY = Math.min(marqueeStartY, marqueeCurrentY)
+      var toY = Math.max(marqueeStartY, marqueeCurrentY)
+      var firstVisible = Math.floor(fromY / measuredRowHeight)
+      var lastVisible = Math.floor(toY / measuredRowHeight)
+      if (firstVisible < 0) firstVisible = 0
+      if (lastVisible >= total) lastVisible = total - 1
+      next = additive ? base.slice() : []
+      for (var i = firstVisible; i <= lastVisible; i++) {
+        if (next.indexOf(i) < 0) next.push(i)
+      }
     }
     selectedIndices = next
     if (next.length > 0) {

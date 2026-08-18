@@ -4,7 +4,7 @@ A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org)
 
 ## Why
 
-Omarchy is opinionated by design — one good default per decision instead of a wall of settings. Omafiles follows the same spirit (and the DHH / 37signals bias toward sharp, un-configurable defaults): no view-mode dropdowns, no icon-size sliders, no settings panel. Sorting is a key that cycles (`s`/`S`), not a combo box. Everything has a keyboard path first; the mouse works too, but it's not the point.
+Omarchy is opinionated by design — one good default per decision instead of a wall of settings. Omafiles follows the same spirit (and the DHH / 37signals bias toward sharp, un-configurable defaults): no view-mode dropdowns, no icon-size sliders, no settings panel. Sorting is a key that cycles (`s`/`S`), not a combo box. View mode is a key that cycles (`v`), not a dropdown. Everything has a keyboard path first; the mouse works too, but it's not the point.
 
 Two ideas shape the whole app:
 
@@ -148,6 +148,7 @@ Every shortcut below is handled in `logic/KeyboardShortcuts.qml`; the in-app ref
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
 | `s` / `Shift+S` | Cycle sort field / reverse order |
+| `v` | Cycle view (list / table / icons) |
 | `Ctrl+L` | Edit path (with autocomplete: `Tab` completes, `↑`/`↓` pick, `Enter` goes) |
 | `Ctrl+Shift+N` | New folder |
 | `Ctrl+N` | New file |

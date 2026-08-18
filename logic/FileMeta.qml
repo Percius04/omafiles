@@ -110,6 +110,43 @@ Item {
     return ""
   }
 
+  function sizeTextFor(entry, basePath) {
+    if (!entry || entry.link === "broken") return "—"
+    if (entry.snippet !== undefined || (entry.path && entry.parent)) return "—"
+    if (entry.type === "dir") {
+      var atPath = basePath !== undefined ? basePath : NavState.currentPath
+      var fc = FolderCountState.counts[Utils.joinPath(atPath, entry.name)]
+      if (typeof fc === "number" && fc >= 0) return Utils.formatItemCount(fc)
+      return ""
+    }
+    return Utils.formatSize(entry.size)
+  }
+
+  function typeTextFor(entry) {
+    return Utils.typeLabel(entry)
+  }
+
+  function dateTextFor(entry, basePath) {
+    if (!entry) return ""
+    if (entry.snippet !== undefined) return "L" + (entry.line || 0)
+    if (entry.path && entry.parent) {
+      var home = Paths.homeDir
+      return (entry.parent.indexOf(home) === 0)
+        ? "~" + entry.parent.substring(home.length)
+        : entry.parent
+    }
+    var atPath = basePath !== undefined ? basePath : NavState.currentPath
+    if (atPath === Paths.trashDir) {
+      var info = TrashState.trashInfo[entry.path]
+      if (info) {
+        var rel = Utils.relativeTime(info.epoch)
+        return rel ? "Deleted " + rel : "Deleted"
+      }
+      return ""
+    }
+    return Utils.relativeTime(entry.mtime) || ""
+  }
+
   // Async path of the folder counter: the backend counts on a
   // thread and responds via counted(); here it is dumped to the reactive cache, which
   // re-evaluates the subtitles. A single point (FileMeta is instantiated once).

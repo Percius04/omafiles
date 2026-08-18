@@ -22,6 +22,10 @@ Item {
   property int _pendingScrollIndex: -1
   property real _pendingScrollOffset: 0
   property real measuredRowHeight: 0
+  Connections {
+    target: ViewState
+    function onViewModeChanged() { root.measuredRowHeight = 0 }
+  }
   property string actionBusyDots: ""
   property var pendingDeleteNames: []
   property var pendingDeleteEntries: []

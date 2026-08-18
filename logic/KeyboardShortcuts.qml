@@ -17,6 +17,17 @@ Item {
   property Item hostListView: null
   property Timer hostGTimer: null
 
+  function moveSelection(delta, extend) {
+    var last = NavState.visibleEntries.length - 1
+    if (last < 0 || !hostListView) return
+    var next = SelectionState.selectedIndex + delta
+    if (next < 0) next = 0
+    if (next > last) next = last
+    if (extend) SelectionState.selectRange(next)
+    else SelectionState.selectOnly(next)
+    hostListView.positionViewAtIndex(next, GridView.Contain)
+  }
+
   function handlePress(event) {
     if (PaletteState.paletteOpen) return
     if (PreviewState.openWithOpen) {
@@ -139,17 +150,23 @@ Item {
       if (hostRoot.gPending) { if (hostControllers && hostControllers.searchOps) hostControllers.searchOps.goTop(); hostRoot.gPending = false }
       else { hostRoot.gPending = true; hostGTimer.restart() }
       event.accepted = true
-    } else if (event.key === Qt.Key_Down || (event.key === Qt.Key_J && event.modifiers === Qt.NoModifier)) {
-      var down = Math.min(NavState.visibleEntries.length - 1, SelectionState.selectedIndex + 1)
-      if (extend) { if (true) SelectionState.selectRange(down) }
-      else { if (true) SelectionState.selectOnly(down) }
-      hostListView.positionViewAtIndex(down, ListView.Contain)
+    } else if (event.key === Qt.Key_J && event.modifiers === Qt.NoModifier) {
+      moveSelection(1, extend)
       event.accepted = true
-    } else if (event.key === Qt.Key_Up || (event.key === Qt.Key_K && event.modifiers === Qt.NoModifier)) {
-      var up = Math.max(0, SelectionState.selectedIndex - 1)
-      if (extend) { if (true) SelectionState.selectRange(up) }
-      else { if (true) SelectionState.selectOnly(up) }
-      hostListView.positionViewAtIndex(up, ListView.Contain)
+    } else if (event.key === Qt.Key_K && event.modifiers === Qt.NoModifier) {
+      moveSelection(-1, extend)
+      event.accepted = true
+    } else if (event.key === Qt.Key_Down) {
+      moveSelection(ViewState.isGrid ? ViewState.gridColumns : 1, extend)
+      event.accepted = true
+    } else if (event.key === Qt.Key_Up) {
+      moveSelection(ViewState.isGrid ? -ViewState.gridColumns : -1, extend)
+      event.accepted = true
+    } else if (ViewState.isGrid && event.key === Qt.Key_Right && event.modifiers === Qt.NoModifier) {
+      moveSelection(1, extend)
+      event.accepted = true
+    } else if (ViewState.isGrid && event.key === Qt.Key_Left && event.modifiers === Qt.NoModifier) {
+      moveSelection(-1, extend)
       event.accepted = true
     } else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
       if (true) SelectionState.selectNone()
@@ -174,6 +191,9 @@ Item {
       event.accepted = true
     } else if (event.key === Qt.Key_S && event.modifiers === Qt.NoModifier) {
       SortState.cycleSort()
+      event.accepted = true
+    } else if (event.key === Qt.Key_V && event.modifiers === Qt.NoModifier) {
+      ViewState.cycleView()
       event.accepted = true
     } else if (event.key === Qt.Key_L && (event.modifiers & Qt.ControlModifier)) {
       if (hostControllers && hostControllers.searchOps) hostControllers.searchOps.startEditPath()

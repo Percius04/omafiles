@@ -83,6 +83,117 @@ QtObject {
           done(ok, "tabs=" + TabsState.tabs.length + " active=" + TabsState.activeTabIndex)
         })
 
+        sc.add("ViewState cycles list, table, and icons", function (done) {
+          var prev = ViewState.viewMode
+          ViewState.setView("list")
+          var startedList = ViewState.isList && !ViewState.isTable && !ViewState.isGrid && ViewState.viewLabel() === "List"
+          ViewState.cycleView()
+          var becameTable = ViewState.isTable && ViewState.viewLabel() === "Table"
+          ViewState.cycleView()
+          var becameGrid = ViewState.isGrid && ViewState.viewLabel() === "Icons"
+          ViewState.cycleView()
+          var backToList = ViewState.isList && ViewState.viewLabel() === "List"
+          ViewState.setView("grid")
+          var setGrid = ViewState.viewMode === "grid" && ViewState.isGrid
+          ViewState.setView("icon")
+          var rejectedUnknown = ViewState.viewMode === "grid"
+          var hit = ViewState.gridIndicesInRect(10, 10, 150, 90, 100, 100, 3, 9)
+          var gridMath = hit.length === 2 && hit[0] === 0 && hit[1] === 1
+          ViewState.setView(prev)
+          var ok = startedList && becameTable && becameGrid && backToList && setGrid && rejectedUnknown && gridMath
+          done(ok, ok ? "list <-> table <-> icons" : "cycle/setView/grid math failed")
+        })
+
+        sc.add("SortState reverse and toggleSort", function (done) {
+          var prevKey = SortState.sortKey
+          var prevDesc = SortState.sortDesc
+          var prevEntries = NavState.entries
+          SortState.sortKey = "name"
+          SortState.sortDesc = false
+          SortState.reverseSort()
+          var reversed = SortState.sortDesc === true && SortState.sortKey === "name"
+          SortState.toggleSort("size")
+          var switched = SortState.sortKey === "size" && SortState.sortDesc === false
+          SortState.toggleSort("size")
+          var toggled = SortState.sortKey === "size" && SortState.sortDesc === true
+          SortState.sortKey = prevKey
+          SortState.sortDesc = prevDesc
+          NavState.entries = prevEntries
+          var ok = reversed && switched && toggled
+          done(ok, ok ? "reverse + toggle" : "sort toggle failed")
+        })
+
+        sc.add("Utils.typeLabel for folder, extension, and file", function (done) {
+          var ok = Utils.typeLabel({ type: "dir", name: "docs" }) === "Folder"
+            && Utils.typeLabel({ type: "file", name: "notes.txt" }) === "TXT"
+            && Utils.typeLabel({ type: "file", name: "README" }) === "File"
+            && Utils.typeLabel(null) === ""
+          done(ok, ok ? "" : "typeLabel mismatch")
+        })
+
+        sc.add("Palette and keyboard expose list, table, and icons views", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var facade = c.commandFacade || c
+          var cmds = facade.paletteCommands()
+          var labels = cmds.map(function (cmd) { return cmd.label })
+          var hasList = labels.indexOf("List view") >= 0
+          var hasTable = labels.indexOf("Table view") >= 0
+          var hasIcons = labels.indexOf("Icons view") >= 0
+
+          var headerComp = Qt.createComponent(Qt.resolvedUrl("../../../shared/FileTableHeader.qml"))
+          var visualComp = Qt.createComponent(Qt.resolvedUrl("../../../shared/FileTableVisual.qml"))
+          var gridComp = Qt.createComponent(Qt.resolvedUrl("../../../shared/FileGridVisual.qml"))
+          var headerOk = headerComp.status === Component.Ready
+          var visualOk = visualComp.status === Component.Ready
+          var gridOk = gridComp.status === Component.Ready
+
+          var metaComp = Qt.createComponent(Qt.resolvedUrl("../../../logic/FileMeta.qml"))
+          if (metaComp.status !== Component.Ready) {
+            done(false, "FileMeta: " + metaComp.errorString())
+            return
+          }
+          var meta = metaComp.createObject(sc)
+          var file = { type: "file", name: "notes.txt", size: 2048, mtime: Math.floor(Date.now() / 1000) - 120, link: "" }
+          var dir = { type: "dir", name: "docs", size: 0, mtime: Math.floor(Date.now() / 1000) - 120, link: "" }
+          var metaOk = meta.sizeTextFor(file) === Utils.formatSize(2048)
+            && meta.typeTextFor(file) === "TXT"
+            && meta.typeTextFor(dir) === "Folder"
+            && meta.dateTextFor(file).indexOf("min ago") >= 0
+          meta.destroy()
+
+          var prevView = ViewState.viewMode
+          ViewState.setView("list")
+          var kbdComp = Qt.createComponent(Qt.resolvedUrl("../../../logic/KeyboardShortcuts.qml"))
+          if (kbdComp.status !== Component.Ready) {
+            ViewState.setView(prevView)
+            done(false, "kbd: " + kbdComp.errorString())
+            return
+          }
+          var pasted = false
+          var kbd = kbdComp.createObject(sc, {
+            "hostControllers": { "actionEngine": { paste: function () { pasted = true } }, "navController": {} },
+            "hostRoot": { "pendingDeleteNames": [] }
+          })
+          var ev = function (k, mod) { return { "key": k, "modifiers": mod || Qt.NoModifier, "accepted": false } }
+          kbd.handlePress(ev(Qt.Key_V))
+          var cycledTable = ViewState.viewMode === "table"
+          kbd.handlePress(ev(Qt.Key_V))
+          var cycledGrid = ViewState.viewMode === "grid"
+          kbd.handlePress(ev(Qt.Key_V, Qt.ControlModifier))
+          kbd.destroy()
+          ViewState.setView(prevView)
+
+          var ok = hasList && hasTable && hasIcons && headerOk && visualOk && gridOk && metaOk && cycledTable && cycledGrid && pasted
+          done(ok, ok ? "palette + v + list/table/icons components"
+            : "list=" + hasList + " table=" + hasTable + " icons=" + hasIcons + " header=" + headerOk
+              + " visual=" + visualOk + " grid=" + gridOk + " meta=" + metaOk
+              + " vTable=" + cycledTable + " vGrid=" + cycledGrid + " paste=" + pasted
+              + (headerOk ? "" : " headerErr=" + headerComp.errorString())
+              + (visualOk ? "" : " visualErr=" + visualComp.errorString())
+              + (gridOk ? "" : " gridErr=" + gridComp.errorString()))
+        })
+
         sc.add("ControllerRegistry + CommandFacade wiring", function (done) {
           var c = sc._content
           if (!c) { done(false, "no composition root"); return }

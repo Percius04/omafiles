@@ -139,6 +139,13 @@ function extOf(name) {
   return idx > 0 ? name.substring(idx + 1).toLowerCase() : ""
 }
 
+function typeLabel(entry) {
+  if (!entry) return ""
+  if (entry.type === "dir") return "Folder"
+  var ext = extOf(entry.name)
+  return ext ? ext.toUpperCase() : "File"
+}
+
 function iconFor(entry) {
   if (!entry) return "󰈤"
   var ext = extOf(entry.name)

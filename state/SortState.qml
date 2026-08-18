@@ -56,5 +56,16 @@ QtObject {
     sortDesc = !sortDesc
     NavState.entries = sortEntries(NavState.entries)
   }
+
+  // Click the same column to reverse; click another column to sort
+  // that field ascending. Used by the table header.
+  function toggleSort(key) {
+    if (sortKey === key) {
+      reverseSort()
+      return
+    }
+    sortDesc = false
+    setSort(key)
+  }
 }
 

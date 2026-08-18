@@ -12,6 +12,7 @@ singleton PreviewContentState 1.0 PreviewContentState.qml
 singleton DialogsState 1.0 DialogsState.qml
 singleton ActionState 1.0 ActionState.qml
 singleton SortState 1.0 SortState.qml
+singleton ViewState 1.0 ViewState.qml
 singleton VideoThumbState 1.0 VideoThumbState.qml
 singleton MountsState 1.0 MountsState.qml
 singleton FolderCountState 1.0 FolderCountState.qml
