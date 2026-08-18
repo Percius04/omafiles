@@ -97,6 +97,102 @@ QtObject {
           done(ok, "palette=" + pal + " emptyArea=" + empty + " segments=" + segs)
         })
 
+        sc.add("Open with click reaches CommandFacade.launchWith", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+
+          function findOpenWithPanel(obj) {
+            if (!obj) return null
+            if (typeof obj.appSelected === "function" && obj.apps !== undefined && obj.entry !== undefined)
+              return obj
+            var kids = obj.children
+            if (!kids) return null
+            for (var i = 0; i < kids.length; i++) {
+              var found = findOpenWithPanel(kids[i])
+              if (found) return found
+            }
+            return null
+          }
+
+          var panel = findOpenWithPanel(c)
+          if (!panel) { done(false, "OpenWithPanel not in the composition tree"); return }
+
+          var previousOpen = PreviewState.openWithOpen
+          var previousEntry = PreviewState.openWithEntry
+          PreviewState.openWithEntry = null
+          PreviewState.openWithOpen = true
+          panel.appSelected("probe.desktop")
+          var reachedLaunch = PreviewState.openWithOpen === false
+          PreviewState.openWithOpen = previousOpen
+          PreviewState.openWithEntry = previousEntry
+          done(reachedLaunch, reachedLaunch
+            ? "DialogLayer invoked launchWith"
+            : "DialogLayer did not invoke launchWith (openWithOpen stayed true)")
+        })
+
+        sc.add("Open with click launches the selected desktop app", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+
+          function findOpenWithPanel(obj) {
+            if (!obj) return null
+            if (typeof obj.appSelected === "function" && obj.apps !== undefined && obj.entry !== undefined)
+              return obj
+            var kids = obj.children
+            if (!kids) return null
+            for (var i = 0; i < kids.length; i++) {
+              var found = findOpenWithPanel(kids[i])
+              if (found) return found
+            }
+            return null
+          }
+
+          var panel = findOpenWithPanel(c)
+          if (!panel) { done(false, "OpenWithPanel not in the composition tree"); return }
+
+          var home = Backend.Env.get("HOME")
+          var dataHome = Backend.Env.get("XDG_DATA_HOME")
+          var appDir = (dataHome && dataHome.length > 0 ? dataHome : home + "/.local/share") + "/applications"
+          var marker = sc.dir + "/openwith-launched"
+          var script = sc.dir + "/openwith-mark.sh"
+          var desktopId = "omafiles-openwith-probe.desktop"
+          var desktop = appDir + "/" + desktopId
+          var previousOpen = PreviewState.openWithOpen
+          var previousEntry = PreviewState.openWithEntry
+
+          function restore() {
+            PreviewState.openWithOpen = previousOpen
+            PreviewState.openWithEntry = previousEntry
+          }
+
+          var setup = "mkdir -p " + sc._q(appDir)
+            + " && printf '%s\\n' '#!/bin/sh' 'echo launched > " + marker + "' > " + sc._q(script)
+            + " && chmod +x " + sc._q(script)
+            + " && printf '%s\\n' '[Desktop Entry]' 'Type=Application' 'Name=Probe' 'Exec=" + script + " %f' > " + sc._q(desktop)
+
+          sc._sh(["bash", "-c", setup], function (r0) {
+            if (r0.exitCode !== 0) {
+              restore()
+              done(false, "setup failed exit=" + r0.exitCode + " stderr=" + String(r0.stderr).trim())
+              return
+            }
+            PreviewState.openWithEntry = { name: "note.txt", type: "file", path: sc.note }
+            PreviewState.openWithOpen = true
+            panel.appSelected(desktopId)
+            sc._poll(function () {
+              return Backend.FileOperations.existingPaths([marker]).length === 1
+            }, function (appeared) {
+              sc._sh(["bash", "-c", "if test -f " + sc._q(marker) + "; then cat " + sc._q(marker) + "; fi; rm -f " + sc._q(desktop) + " " + sc._q(script) + " " + sc._q(marker)], function (r1) {
+                restore()
+                var out = String(r1.stdout).trim()
+                done(appeared && out === "launched",
+                     appeared ? "marker='" + out + "'"
+                              : "selected app did not start")
+              })
+            })
+          })
+        })
+
         sc.add("AppBindings loaded (no side effects under selfcheck)", function (done) {
           // If OmafilesContent was created without errors, AppBindings (its child) too.
           // The self-registration as file manager is guarded by

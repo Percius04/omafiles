@@ -197,7 +197,7 @@ Item {
     entry: PreviewState.openWithEntry
     apps: PreviewState.openWithApps
     onCloseRequested: PreviewState.openWithOpen = false
-    onAppSelected: function (appId) { if (controllers && controllers.commandFacade) controllers.commandFacade.launchWith(appId) }
+    onAppSelected: function (appId) { if (commandFacade) commandFacade.launchWith(appId) }
   }
 
   // ---------- Context menu ----------
