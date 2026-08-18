@@ -221,6 +221,86 @@ QtObject {
           Backend.FileOperations.copy(sc.note, work)
         })
 
+        sc.add("ActionEngine parses uri-list when hasUrls is false", function (done) {
+          var c = sc._content
+          if (!c || !c.actionEngine) { done(false, "no composition root"); return }
+          var parsed = c.actionEngine.parseUriList("file:///tmp/a.txt\r\n# comment\r\nfile:///tmp/b.txt\n")
+          var urls = c.actionEngine.urlsFromDrop({
+            hasUrls: false,
+            urls: [],
+            getDataAsString: function () { return "file:///tmp/only.txt\r\n" }
+          })
+          var ok = parsed.length === 2 && parsed[0] === "file:///tmp/a.txt" && parsed[1] === "file:///tmp/b.txt"
+            && urls.length === 1 && urls[0] === "file:///tmp/only.txt"
+          done(ok, ok ? "uri-list fallback" : "parsed=" + parsed + " urls=" + urls)
+        })
+
+        sc.add("ActionEngine handleFilesDropped moves via uri-list without hasUrls", function (done) {
+          var c = sc._content
+          if (!c || !c.actionEngine) { done(false, "no composition root"); return }
+          var srcDir = sc.opsDir + "/drop-uri-src"
+          var destDir = sc.opsDir + "/drop-uri-dst"
+          var srcFile = srcDir + "/via-drop.txt"
+          var destFile = destDir + "/via-drop.txt"
+          Backend.FileOperations.mkdir(srcDir)
+          sc._fileOp(done, function () {
+            Backend.FileOperations.mkdir(destDir)
+            sc._fileOp(done, function () {
+              Backend.FileOperations.copy(sc.note, srcFile)
+              sc._fileOp(done, function () {
+                sc._fileOp(done, function () {
+                  sc._poll(function () {
+                    return Backend.FileOperations.existingPaths([destFile]).length === 1
+                  }, function (arrived) {
+                    var destExists = Backend.FileOperations.existingPaths([destFile]).length === 1
+                    var srcExists = Backend.FileOperations.existingPaths([srcFile]).length === 1
+                    var ok = arrived && destExists && !srcExists
+                    done(ok, ok ? "handleFilesDropped moved" : "arrived=" + arrived + " destExists=" + destExists + " srcExists=" + srcExists)
+                  })
+                })
+                c.actionEngine.handleFilesDropped({
+                  hasUrls: false,
+                  urls: [],
+                  source: c.actionEngine,
+                  accepted: true,
+                  getDataAsString: function () { return "file://" + srcFile },
+                  accept: function () {}
+                }, destDir)
+              })
+            })
+          })
+        })
+
+        sc.add("ActionEngine startDropInto moves a file into another folder", function (done) {
+          var c = sc._content
+          if (!c || !c.actionEngine) { done(false, "no composition root"); return }
+          var srcDir = sc.opsDir + "/drop-src"
+          var destDir = sc.opsDir + "/drop-dst"
+          var srcFile = srcDir + "/dropme.txt"
+          var destFile = destDir + "/dropme.txt"
+          Backend.FileOperations.mkdir(srcDir)
+          sc._fileOp(done, function () {
+            Backend.FileOperations.mkdir(destDir)
+            sc._fileOp(done, function () {
+              Backend.FileOperations.copy(sc.note, srcFile)
+              sc._fileOp(done, function () {
+                sc._fileOp(done, function () {
+                  sc._poll(function () {
+                    return Backend.FileOperations.existingPaths([destFile]).length === 1
+                  }, function (arrived) {
+                    var destExists = Backend.FileOperations.existingPaths([destFile]).length === 1
+                    var srcExists = Backend.FileOperations.existingPaths([srcFile]).length === 1
+                    var ok = arrived && destExists && !srcExists
+                    done(ok, ok ? "moved into dest folder"
+                      : "arrived=" + arrived + " destExists=" + destExists + " srcExists=" + srcExists)
+                  })
+                })
+                c.actionEngine.startDropInto(destDir, [srcFile], true)
+              })
+            })
+          })
+        })
+
         sc.add("Backend.FileOperations delete directory (recursive)", function (done) {
           sc._fileOp(done, function () {
             sc._fileOp(done, function () {

@@ -44,8 +44,9 @@ Item {
   function positionViewAtBeginning() { listView.positionViewAtBeginning() }
   function positionViewAtIndex(index, mode) { listView.positionViewAtIndex(index, mode) }
   // Index of the first visible row (to save/restore scroll by
-  // index when switching tabs).
-  function firstVisibleIndex() { return listView.indexAt(listView.width / 2, listView.contentY + 4) }
+  // index when switching tabs). x=4 hits the first cell in icon
+  // view and still sits on the row in list/table.
+  function firstVisibleIndex() { return listView.indexAt(4, listView.contentY + 4) }
   // SUB-ROW offset: how many pixels the top row is shifted up
   // relative to the viewport edge.
   function firstVisibleOffset() {
@@ -57,10 +58,26 @@ Item {
   // Positions row `idx` reproducing the EXACT sub-row offset.
   function positionAtIndexWithOffset(idx, offset) {
     listView.forceLayout()
-    listView.positionViewAtIndex(idx, ListView.Beginning)
+    listView.positionViewAtIndex(idx, GridView.Beginning)
     var it = listView.itemAtIndex(idx)
     if (it) listView.contentY = it.y + offset
   }
+
+  FontMetrics { id: listNameFM; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
+  FontMetrics { id: listMetaFM; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
+  readonly property int listRowInnerH: Math.max(Style.spacing.controlHeight,
+    Math.ceil(listNameFM.height) + Style.spacing.xs + Math.ceil(listMetaFM.height))
+  readonly property int tableRowInnerH: Math.max(Style.spacing.controlHeight, Math.ceil(listNameFM.height))
+  readonly property int listCellH: listRowInnerH + Style.spacing.md * 2
+  readonly property int tableCellH: tableRowInnerH + Style.spacing.sm * 2
+  readonly property int gridIconS: Style.space(ViewState.gridIconPx)
+  readonly property int gridCellH: gridIconS + Style.spacing.sm + Math.ceil(listNameFM.height) * 2 + Style.spacing.md * 2
+  readonly property int gridMinCellW: Style.space(ViewState.gridCellWidthPx)
+  readonly property int gridCols: ViewState.columnsForWidth(listView.width, gridMinCellW)
+  readonly property int gridCellW: ViewState.cellWidthFor(listView.width, gridMinCellW)
+  onGridColsChanged: ViewState.gridColumns = gridCols
+  onGridCellWChanged: ViewState.gridCellWidth = gridCellW
+  onGridCellHChanged: ViewState.gridCellHeight = gridCellH
 
   KeyboardShortcuts {
     id: keyboardShortcuts
@@ -82,6 +99,15 @@ Item {
               anchors.top: parent.top
               foreground: Color.menu.text
               strength: 0.15
+            }
+
+            FileTableHeader {
+              id: tableHeader
+              visible: ViewState.isTable
+              anchors.top: listSep.bottom
+              anchors.left: parent.left
+              width: listView.width
+              height: visible ? implicitHeight : 0
             }
 
             MouseArea {
@@ -106,7 +132,7 @@ Item {
               anchors.left: parent.left
               width: PreviewState.previewOpen ? parent.width * 0.55 : parent.width
               keys: ["text/uri-list"]
-              onEntered: function (drag) { if (!drag.hasUrls) drag.accepted = false }
+              onEntered: function (drag) { drag.accepted = true }
               onDropped: function (drop) {
                 if (controllers && controllers.actionEngine) controllers.actionEngine.handleFilesDropped(drop, NavState.currentPath)
               }
@@ -143,16 +169,21 @@ Item {
               measuredRowHeight: root.measuredRowHeight
             }
 
-            ListView {
+            GridView {
               id: listView
-              anchors.top: listSep.bottom
-              anchors.topMargin: Style.spacing.md
+              anchors.top: tableHeader.bottom
+              anchors.topMargin: ViewState.isTable ? Style.spacing.xs : Style.spacing.md
               anchors.bottom: parent.bottom
               anchors.left: parent.left
               width: PreviewState.previewOpen ? parent.width * 0.55 : parent.width
               clip: true
               model: NavState.visibleEntries
               focus: root && root.opened && !NavState.searching
+              cellWidth: ViewState.isGrid ? gridCellW : Math.max(1, width)
+              cellHeight: ViewState.isGrid ? gridCellH : (ViewState.isTable ? tableCellH : listCellH)
+              flow: GridView.LeftToRight
+              keyNavigationEnabled: false
+              highlightFollowsCurrentItem: false
               onModelChanged: {
                 if (root && root.suppressListFade) return
                 listRepopulateFade.restart()
@@ -227,7 +258,7 @@ Item {
               // the same error appeared in two different places depending on the panel
               // (Visual Sprint 3, C-05).
               visible: NavState.currentPathError !== ""
-              anchors.top: listSep.bottom
+              anchors.top: tableHeader.visible ? tableHeader.bottom : listSep.bottom
               anchors.topMargin: Style.spacing.md
               // No leftMargin: it aligns with the ICON COLUMN (the glyph
               // starts at the content edge), not with the names one -- the

@@ -19,9 +19,11 @@ CursorSurface {
   property Item hostTabOps: null
   property Item hostNavController: null
   property int bgPanelIndex: -1
+  property int cellWidth: 0
+  property int cellHeight: 0
 
-  width: parent ? parent.width : 0
-  implicitHeight: bgRowContent.implicitHeight + Style.spacing.md * 2
+  width: cellWidth > 0 ? cellWidth : (parent ? parent.width : 0)
+  implicitHeight: bgRowContent.implicitHeight + (ViewState.isTable ? Style.spacing.sm * 2 : Style.spacing.md * 2)
   foreground: Color.menu.text
   accent: Color.accent
   hasCursor: bgRowMouse.containsMouse
@@ -38,7 +40,7 @@ CursorSurface {
     visible: modelData.type === "dir"
     anchors.fill: parent
     keys: ["text/uri-list"]
-    onEntered: function (drag) { if (!drag.hasUrls) drag.accepted = false }
+    onEntered: function (drag) { drag.accepted = true }
     onDropped: function (drop) {
       if (hostDragDropOps) hostDragDropOps.handleFilesDropped(drop, Utils.entryPath(panelPath, modelData))
     }
@@ -49,9 +51,10 @@ CursorSurface {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.verticalCenter: parent.verticalCenter
-    anchors.leftMargin: 0
-    anchors.rightMargin: Style.spacing.rowPaddingX
-    implicitHeight: bgFileRow.implicitHeight
+    anchors.leftMargin: ViewState.isGrid ? Style.spacing.sm : 0
+    anchors.rightMargin: ViewState.isGrid ? Style.spacing.sm : Style.spacing.rowPaddingX
+    implicitHeight: ViewState.isGrid ? bgGridVisual.implicitHeight
+      : (ViewState.isTable ? bgTableVisual.implicitHeight : bgFileRow.implicitHeight)
 
     readonly property bool isVid: Utils.isVideo(modelData)
     readonly property string vidKey: isVid ? Utils.thumbKeyFor(modelData, panelPath) : ""
@@ -97,6 +100,7 @@ CursorSurface {
 
     FileRowVisual {
       id: bgFileRow
+      visible: ViewState.isList
       anchors.fill: parent
       name: modelData.name || ""
       isDir: modelData.type === "dir"
@@ -107,6 +111,34 @@ CursorSurface {
       metaText: hostFileMeta ? hostFileMeta.metaFor(modelData, panelPath) : ""
       metaTooltip: hostFileMeta ? hostFileMeta.metaTooltipFor(modelData, panelPath) : ""
     }
+
+    FileGridVisual {
+      id: bgGridVisual
+      visible: ViewState.isGrid
+      anchors.fill: parent
+      name: modelData.name || ""
+      isDir: modelData.type === "dir"
+      isBroken: modelData.link === "broken"
+      fileIconGlyph: Utils.iconFor(modelData)
+      thumbSource: bgRowContent.imgThumb ? Util.fileUrl(bgRowContent.imgThumb)
+        : (bgRowContent.vidThumb ? Util.fileUrl(bgRowContent.vidThumb) : "")
+    }
+
+    FileTableVisual {
+      id: bgTableVisual
+      visible: ViewState.isTable
+      anchors.fill: parent
+      name: modelData.name || ""
+      isDir: modelData.type === "dir"
+      isBroken: modelData.link === "broken"
+      fileIconGlyph: Utils.iconFor(modelData)
+      thumbSource: bgRowContent.imgThumb ? Util.fileUrl(bgRowContent.imgThumb)
+        : (bgRowContent.vidThumb ? Util.fileUrl(bgRowContent.vidThumb) : "")
+      sizeText: hostFileMeta ? hostFileMeta.sizeTextFor(modelData, panelPath) : ""
+      typeText: hostFileMeta ? hostFileMeta.typeTextFor(modelData) : ""
+      dateText: hostFileMeta ? hostFileMeta.dateTextFor(modelData, panelPath) : ""
+      sizeTooltip: hostFileMeta ? hostFileMeta.metaTooltipFor(modelData, panelPath) : ""
+    }
   }
 
   MouseArea {
@@ -116,6 +148,11 @@ CursorSurface {
     cursorShape: Qt.PointingHandCursor
     drag.target: bgDragProxy
     drag.axis: Drag.XAndYAxis
+    onPressed: function (mouse) {
+      if (mouse.button === Qt.LeftButton) DropHoverState.pointerDown = true
+    }
+    onReleased: DropHoverState.pointerDown = false
+    onCanceled: DropHoverState.pointerDown = false
     onDoubleClicked: {
       if (bgSearching) {
         if (hostTabOps) hostTabOps.navigateTabTo(bgPanelIndex, modelData.type === "dir" ? modelData.path : modelData.parent)
@@ -139,6 +176,11 @@ CursorSurface {
       var data = {}
       data["text/uri-list"] = Util.fileUrl(Utils.joinPath(panelPath, modelData.name))
       return data
+    }
+    Drag.onActiveChanged: DropHoverState.dragActive = Drag.active
+    Component.onDestruction: {
+      if (Drag.active) DropHoverState.dragActive = false
+      if (bgRowMouse.pressed) DropHoverState.pointerDown = false
     }
   }
 }

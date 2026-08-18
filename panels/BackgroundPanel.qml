@@ -121,7 +121,7 @@ Item {
     // etc. ended up acting on the wrong folder.
     // The real guard now lives in switchToTab() (hasBlockingOverlay), so
     // it covers ALL the dialogs, not just these two.
-    onHoveredChanged: if (hovered) hostTabOps.switchToTab(bgPanel.index)
+    onHoveredChanged: if (hovered && !DropHoverState.blockPanelSwitch) hostTabOps.switchToTab(bgPanel.index)
   }
 
   // Last path for which this specific panel launched a reload --
@@ -196,7 +196,7 @@ Item {
       // Anchored on the row's REAL y (same geometry as firstVisibleOffset
       // when saving), not on the contentY that positionViewAtIndex leaves -> no drift.
       bgList.forceLayout()
-      bgList.positionViewAtIndex(idx, ListView.Beginning)
+      bgList.positionViewAtIndex(idx, GridView.Beginning)
       var it = bgList.itemAtIndex(idx)
       if (it) bgList.contentY = it.y + (modelData.scrollOffset || 0)
     } else {
@@ -211,7 +211,7 @@ Item {
     if (index < 0 || index >= TabsState.tabs.length) return
     var t = TabsState.tabs[index]
     if (!t || t.scrollY === bgList.contentY) return
-    var idx = bgList.indexAt(bgList.width / 2, bgList.contentY + 4)
+    var idx = bgList.indexAt(4, bgList.contentY + 4)
     var it = idx >= 0 ? bgList.itemAtIndex(idx) : null
     var off = it ? (bgList.contentY - it.y) : 0
     var next = TabsState.tabs.slice()
@@ -222,7 +222,7 @@ Item {
   DropArea {
     anchors.fill: parent
     keys: ["text/uri-list"]
-    onEntered: function (drag) { if (!drag.hasUrls) drag.accepted = false }
+    onEntered: function (drag) { drag.accepted = true }
     onDropped: function (drop) { hostDragDropOps.handleFilesDropped(drop, bgPanel.modelData.path) }
   }
 
@@ -245,10 +245,19 @@ Item {
     strength: 0.15
   }
 
+  FileTableHeader {
+    id: bgTableHeader
+    visible: ViewState.isTable
+    anchors.top: bgHeaderSep.bottom
+    anchors.left: parent.left
+    width: parent.width
+    height: visible ? implicitHeight : 0
+  }
+
   Text {
     id: bgErrorText
     visible: dirLister.pathError !== "" && !bgPanel.bgSearching
-    anchors.top: bgHeaderSep.bottom
+    anchors.top: bgTableHeader.visible ? bgTableHeader.bottom : bgHeaderSep.bottom
     anchors.topMargin: Style.spacing.md
     anchors.left: parent.left
     anchors.right: parent.right
@@ -261,10 +270,23 @@ Item {
     color: Color.urgent
   }
 
-  ListView {
+  FontMetrics { id: bgNameFM; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
+  FontMetrics { id: bgMetaFM; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
+  readonly property int bgListRowInnerH: Math.max(Style.spacing.controlHeight,
+    Math.ceil(bgNameFM.height) + Style.spacing.xs + Math.ceil(bgMetaFM.height))
+  readonly property int bgTableRowInnerH: Math.max(Style.spacing.controlHeight, Math.ceil(bgNameFM.height))
+  readonly property int bgListCellH: bgListRowInnerH + Style.spacing.md * 2
+  readonly property int bgTableCellH: bgTableRowInnerH + Style.spacing.sm * 2
+  readonly property int bgGridIconS: Style.space(ViewState.gridIconPx)
+  readonly property int bgGridCellH: bgGridIconS + Style.spacing.sm + Math.ceil(bgNameFM.height) * 2 + Style.spacing.md * 2
+  readonly property int bgGridMinCellW: Style.space(ViewState.gridCellWidthPx)
+  readonly property int bgGridCols: ViewState.columnsForWidth(bgList.width, bgGridMinCellW)
+  readonly property int bgGridCellW: ViewState.cellWidthFor(bgList.width, bgGridMinCellW)
+
+  GridView {
     id: bgList
-    anchors.top: bgErrorText.visible ? bgErrorText.bottom : bgHeaderSep.bottom
-    anchors.topMargin: Style.spacing.md
+    anchors.top: bgErrorText.visible ? bgErrorText.bottom : bgTableHeader.bottom
+    anchors.topMargin: ViewState.isTable ? Style.spacing.xs : Style.spacing.md
     anchors.bottom: bgStatusText.top
     anchors.bottomMargin: Style.spacing.rowGap
     anchors.left: parent.left
@@ -272,6 +294,11 @@ Item {
     clip: true
     model: bgPanel.bgSearching ? bgPanel.bgVisibleSearchEntries : bgPanel._content
     boundsBehavior: Flickable.StopAtBounds
+    cellWidth: ViewState.isGrid ? bgPanel.bgGridCellW : Math.max(1, width)
+    cellHeight: ViewState.isGrid ? bgPanel.bgGridCellH : (ViewState.isTable ? bgPanel.bgTableCellH : bgPanel.bgListCellH)
+    flow: GridView.LeftToRight
+    keyNavigationEnabled: false
+    highlightFollowsCurrentItem: false
     onMovementEnded: bgPanel._saveScroll()
 
     delegate: BackgroundListDelegate {
@@ -283,6 +310,8 @@ Item {
       hostTabOps: bgPanel.hostTabOps
       hostNavController: bgPanel.hostNavController
       bgPanelIndex: bgPanel.index
+      cellWidth: bgList.cellWidth
+      cellHeight: bgList.cellHeight
     }
   }
 
@@ -317,7 +346,8 @@ Item {
          + " of " + bgPanel.bgSearchEntries.length
          + (bgPanel.modelData.searchTruncated ? " · showing first 200" : ""))
       : (dirLister.entries.length + (dirLister.entries.length === 1 ? " item" : " items")
-         + " · sort: " + SortState.sortLabel())
+         + " · sort: " + SortState.sortLabel()
+         + " · view: " + ViewState.viewLabel())
     font.pixelSize: Style.font.subtitle
     font.family: Style.font.family
     color: Color.menu.text

@@ -10,4 +10,10 @@ import QtQuick
 QtObject {
   property int dropHoverIndex: -1
   property string dropHoverPath: ""
+  // True while a file row is pressed or a Drag is live. Hover-to-activate
+  // must not switch panels in that window: switchToTab rebuilds the list
+  // and destroys the drag source.
+  property bool pointerDown: false
+  property bool dragActive: false
+  readonly property bool blockPanelSwitch: pointerDown || dragActive
 }

@@ -31,8 +31,8 @@ CursorSurface {
   property Item hostFileMeta: null
   property Item hostConflictActions: null
 
-  width: hostListView.width
-  implicitHeight: rowContent.implicitHeight + Style.spacing.md * 2
+  width: hostListView.cellWidth
+  implicitHeight: rowContent.implicitHeight + (ViewState.isTable ? Style.spacing.sm * 2 : Style.spacing.md * 2)
   Accessible.role: Accessible.ListItem
   Accessible.name: modelData.name + (modelData.type === "dir" ? ", folder" : ", file")
   Accessible.selected: SelectionState.isSelected(index)
@@ -46,7 +46,8 @@ CursorSurface {
   // rows measure the same, so keeping the maximum
   // seen is safe and never accepts a smaller transient value.
   onHeightChanged: {
-    if (height > hostRoot.measuredRowHeight) hostRoot.measuredRowHeight = height
+    if (ViewState.isGrid) return
+    if (hostRoot && height > hostRoot.measuredRowHeight) hostRoot.measuredRowHeight = height
   }
   foreground: Color.menu.text
   accent: Color.accent
@@ -60,7 +61,6 @@ CursorSurface {
     enabled: modelData.type === "dir"
     keys: ["text/uri-list"]
     onEntered: function (drag) {
-      if (!drag.hasUrls) { drag.accepted = false; return }
       DropHoverState.dropHoverIndex = index
     }
     onExited: if (DropHoverState.dropHoverIndex === index) DropHoverState.dropHoverIndex = -1
@@ -75,9 +75,10 @@ CursorSurface {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.verticalCenter: parent.verticalCenter
-    anchors.leftMargin: 0
-    anchors.rightMargin: Style.spacing.rowPaddingX
-    implicitHeight: activeFileRow.implicitHeight
+    anchors.leftMargin: ViewState.isGrid ? Style.spacing.sm : 0
+    anchors.rightMargin: ViewState.isGrid ? Style.spacing.sm : Style.spacing.rowPaddingX
+    implicitHeight: ViewState.isGrid ? gridVisual.implicitHeight
+      : (ViewState.isTable ? tableVisual.implicitHeight : listVisual.implicitHeight)
 
     readonly property bool isVid: Utils.isVideo(modelData)
     readonly property string vidKey: isVid ? Utils.thumbKeyFor(modelData, NavState.currentPath) : ""
@@ -132,7 +133,8 @@ CursorSurface {
     }
 
     FileRowVisual {
-      id: activeFileRow
+      id: listVisual
+      visible: ViewState.isList
       anchors.fill: parent
       name: modelData.name
       isDir: modelData.type === "dir"
@@ -144,6 +146,40 @@ CursorSurface {
         : (rowContent.vidThumb ? Util.fileUrl(rowContent.vidThumb) : "")
       metaText: hostFileMeta.metaFor(modelData)
       metaTooltip: hostFileMeta.metaTooltipFor(modelData)
+      showNameText: EditModeState.renamingIndex !== index
+    }
+
+    FileGridVisual {
+      id: gridVisual
+      visible: ViewState.isGrid
+      anchors.fill: parent
+      name: modelData.name
+      isDir: modelData.type === "dir"
+      isBroken: modelData.link === "broken"
+      highlighted: rowSurface.current
+      dimmed: ClipboardState.clipboardMode === "cut" && ClipboardState.clipboardPaths.indexOf(Utils.entryPath(NavState.currentPath, modelData)) >= 0
+      fileIconGlyph: Utils.iconFor(modelData)
+      thumbSource: rowContent.imgThumb ? Util.fileUrl(rowContent.imgThumb)
+        : (rowContent.vidThumb ? Util.fileUrl(rowContent.vidThumb) : "")
+      showNameText: EditModeState.renamingIndex !== index
+    }
+
+    FileTableVisual {
+      id: tableVisual
+      visible: ViewState.isTable
+      anchors.fill: parent
+      name: modelData.name
+      isDir: modelData.type === "dir"
+      isBroken: modelData.link === "broken"
+      highlighted: rowSurface.current
+      dimmed: ClipboardState.clipboardMode === "cut" && ClipboardState.clipboardPaths.indexOf(Utils.entryPath(NavState.currentPath, modelData)) >= 0
+      fileIconGlyph: Utils.iconFor(modelData)
+      thumbSource: rowContent.imgThumb ? Util.fileUrl(rowContent.imgThumb)
+        : (rowContent.vidThumb ? Util.fileUrl(rowContent.vidThumb) : "")
+      sizeText: hostFileMeta ? hostFileMeta.sizeTextFor(modelData) : ""
+      typeText: hostFileMeta ? hostFileMeta.typeTextFor(modelData) : ""
+      dateText: hostFileMeta ? hostFileMeta.dateTextFor(modelData) : ""
+      sizeTooltip: hostFileMeta ? hostFileMeta.metaTooltipFor(modelData) : ""
       showNameText: EditModeState.renamingIndex !== index
     }
 
@@ -160,9 +196,11 @@ CursorSurface {
       // same known constant (Style.spacing.controlHeight,
       // the icon's fixed width) instead of chasing the id.
       anchors.left: parent.left
-      anchors.leftMargin: Style.spacing.controlHeight + Style.spacing.rowGap
+      anchors.leftMargin: ViewState.isGrid ? Style.spacing.xs : Style.spacing.controlHeight + Style.spacing.rowGap
       anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
+      anchors.rightMargin: ViewState.isGrid ? Style.spacing.xs : 0
+      anchors.bottom: ViewState.isGrid ? parent.bottom : undefined
+      anchors.verticalCenter: ViewState.isGrid ? undefined : parent.verticalCenter
       verticalPadding: 2
       onVisibleChanged: if (visible) { text = modelData.name; forceActiveFocus(); selectAll() } else hostListView.forceActiveFocus()
       Keys.onPressed: function (event) {
@@ -192,8 +230,8 @@ CursorSurface {
     // between the icon and the separator bar. Right matches
     // rowContent.anchors.rightMargin (rowPaddingX), which already
     // leaves that gap without visual content.
-    anchors.leftMargin: 24
-    anchors.rightMargin: Style.spacing.rowPaddingX
+    anchors.leftMargin: ViewState.isGrid ? 0 : 24
+    anchors.rightMargin: ViewState.isGrid ? 0 : Style.spacing.rowPaddingX
     hoverEnabled: true
     visible: EditModeState.renamingIndex !== index
     acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -215,9 +253,12 @@ CursorSurface {
       // the time the movement exceeds the drag threshold it's almost
       // always ready.
       if (mouse.button === Qt.LeftButton) {
+        DropHoverState.pointerDown = true
         rowContent.grabToImage(function (result) { dragProxy.Drag.imageSource = result.url })
       }
     }
+    onReleased: DropHoverState.pointerDown = false
+    onCanceled: DropHoverState.pointerDown = false
     onClicked: function (mouse) {
       if (mouse.button === Qt.RightButton) {
         if (!SelectionState.isSelected(index)) SelectionState.selectOnly(index)
@@ -246,6 +287,11 @@ CursorSurface {
     Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
     Drag.proposedAction: Qt.MoveAction
     Drag.mimeData: hostDragDropOps.dragMimeDataFor(index)
+    Drag.onActiveChanged: DropHoverState.dragActive = Drag.active
+    Component.onDestruction: {
+      if (Drag.active) DropHoverState.dragActive = false
+      if (mouseArea.pressed) DropHoverState.pointerDown = false
+    }
   }
 
   // Lasso gutters on both sides of the row -- they implement
@@ -258,6 +304,7 @@ CursorSurface {
   // (Style.spacing.rowPaddingX) leave these gaps free of
   // visual content, so they steal nothing from the icon/text.
   MarqueeCatcher {
+    visible: !ViewState.isGrid
     anchors.top: parent.top
     anchors.bottom: parent.bottom
     anchors.left: parent.left
@@ -267,6 +314,7 @@ CursorSurface {
   }
 
   MarqueeCatcher {
+    visible: !ViewState.isGrid
     anchors.top: parent.top
     anchors.bottom: parent.bottom
     anchors.right: parent.right

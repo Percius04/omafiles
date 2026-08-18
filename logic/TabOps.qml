@@ -197,6 +197,7 @@ Item {
   function switchToTab(index) {
     if (index < 0 || index >= TabsState.tabs.length || index === TabsState.activeTabIndex) return
     if (root.hasBlockingOverlay) return
+    if (DropHoverState.blockPanelSwitch) return
     // The magnifier must NOT animate its expand/collapse due to a tab change: when
     // adopting the search state of the new tab, `searching` changes and the
     // bar would do the minimize/expand animation on the tab you arrive at

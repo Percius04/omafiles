@@ -56,5 +56,33 @@ QtObject {
             })
           })
         })
+
+        sc.add("switchToTab is a no-op while a file drag is active", function (done) {
+          var c = sc._content
+          if (!c || !c.controllers || !c.controllers.tabOps) {
+            done(false, "no tabOps"); return
+          }
+          var tabOps = c.controllers.tabOps
+          var prevTabs = TabsState.tabs
+          var prevIndex = TabsState.activeTabIndex
+          var prevDrag = DropHoverState.dragActive
+          var prevPointer = DropHoverState.pointerDown
+          if (TabsState.tabs.length < 2) tabOps.newTab()
+          var from = TabsState.activeTabIndex
+          var to = from === 0 ? 1 : 0
+          DropHoverState.dragActive = true
+          tabOps.switchToTab(to)
+          var blocked = TabsState.activeTabIndex === from
+          DropHoverState.dragActive = false
+          tabOps.switchToTab(to)
+          var allowed = TabsState.activeTabIndex === to
+          DropHoverState.dragActive = prevDrag
+          DropHoverState.pointerDown = prevPointer
+          TabsState.tabs = prevTabs
+          TabsState.activeTabIndex = prevIndex
+          var ok = blocked && allowed
+          done(ok, ok ? "blocked during drag, allowed after"
+            : "blocked=" + blocked + " allowed=" + allowed)
+        })
   }
 }

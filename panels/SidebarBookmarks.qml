@@ -58,7 +58,6 @@ Column {
         enabled: modelData.type !== "file"
         keys: ["text/uri-list"]
         onEntered: function (drag) {
-          if (!drag.hasUrls) { drag.accepted = false; return }
           root.dropHoverChanged(modelData.path)
         }
         onExited: if (root.dropHoverPath === modelData.path) root.dropHoverChanged("")

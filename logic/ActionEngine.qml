@@ -864,6 +864,25 @@ Item {
     try { return decodeURIComponent(s) } catch (e) { return s }
   }
 
+  // RFC 2483 uri-list: ignore comments and strip CR. Used when a DropEvent
+  // offers text/uri-list but hasUrls is still false (Wayland often advertises
+  // the type before the URL list is retrieved).
+  function parseUriList(text) {
+    return String(text || "").split("\n").map(function (line) {
+      return line.replace(/\r$/, "")
+    }).filter(function (line) {
+      return line.length > 0 && line.charAt(0) !== "#"
+    })
+  }
+
+  function urlsFromDrop(drop) {
+    if (drop.hasUrls && drop.urls && drop.urls.length)
+      return drop.urls
+    if (typeof drop.getDataAsString === "function")
+      return parseUriList(drop.getDataAsString("text/uri-list"))
+    return []
+  }
+
   // MimeData of the file(s) that row `index` starts to drag --
   // if that row is already part of a multiple selection, it drags the whole
   // selection (like Nautilus); if not, only that row.
@@ -892,8 +911,7 @@ Item {
   // background) with the real DragEvent and the destination folder already resolved.
   function handleFilesDropped(drop, destDir) {
     if (ArchiveState.inArchive) { drop.accepted = false; return }
-    if (!drop.hasUrls) { drop.accepted = false; return }
-    var paths = drop.urls.map(function (u) { return urlToPath(u) }).filter(function (p) { return p.length > 0 })
+    var paths = urlsFromDrop(drop).map(function (u) { return urlToPath(u) }).filter(function (p) { return p.length > 0 })
     if (paths.length === 0) { drop.accepted = false; return }
     var isMove = drop.source !== null && drop.source !== undefined
     drop.accept(isMove ? Qt.MoveAction : Qt.CopyAction)
