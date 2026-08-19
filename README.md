@@ -237,6 +237,26 @@ The command runs fire-and-forget with a `cd` into the item's folder. The file is
 
 ## Installation
 
+### Nix
+
+Run Omafiles directly from GitHub without cloning it:
+
+```bash
+nix run github:Percius04/omafiles
+# Equivalent full URL: nix run git+https://github.com/Percius04/omafiles
+```
+
+Install it into your current Nix profile for a persistent `omafiles` command:
+
+```bash
+nix profile add github:Percius04/omafiles
+omafiles
+```
+
+For development, `nix develop` provides the complete CMake, Qt6, and runtime toolchain.
+
+### CMake
+
 Omafiles is a **Qt6 standalone application** (no longer a Quickshell plugin), fully independent of Omarchy and of this repository. Clone it **anywhere**, build, and install to `~/.local` (no root):
 
 ```bash
