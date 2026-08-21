@@ -132,12 +132,18 @@ Item {
         }
       }
       
-      EmptyState {
-        visible: root.commands.length === 0
-        centerOn: paletteList
-        message: root.query ? "No results for “" + root.query + "”" : "No commands available"
-        subMessage: root.query ? "Try a broader search" : ""
-      }
+    }
+
+    // OUTSIDE the Column on purpose -- same reason as PreviewPanel's
+    // "No file selected" state: EmptyState anchors itself (centerIn), and an
+    // anchored child inside a positioner makes the Column log "Column will
+    // not function" and permanently stop laying out its children. This was
+    // the warning printed on every single launch.
+    EmptyState {
+      visible: root.commands.length === 0
+      centerOn: paletteList
+      message: root.query ? "No results for “" + root.query + "”" : "No commands available"
+      subMessage: root.query ? "Try a broader search" : ""
     }
   }
 }

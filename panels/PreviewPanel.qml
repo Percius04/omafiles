@@ -55,6 +55,7 @@ Item {
     MouseArea { anchors.fill: parent; onClicked: {} }
 
     Column {
+      id: previewCol
       anchors.fill: parent
       anchors.topMargin: previewPanel.contentTopInset
       anchors.rightMargin: previewPanel.contentRightInset
@@ -277,12 +278,19 @@ Item {
         }
       }
 
-      EmptyState {
-        visible: !root.hasEntry
-        centerOn: parent
-        message: "No file selected"
-        subMessage: "Select a file to preview its contents"
-      }
+    }
+
+    // OUTSIDE the Column on purpose. EmptyState positions itself with
+    // anchors.centerIn, and an anchored child inside a positioner doesn't
+    // just misplace itself -- the Column logs "Column will not function" and
+    // PERMANENTLY stops laying out its children. Once "No file selected" had
+    // been shown once, every later text preview rendered its Flickable at
+    // y:0, painting the file's first line on top of the filename header.
+    EmptyState {
+      visible: !root.hasEntry
+      centerOn: previewCol
+      message: "No file selected"
+      subMessage: "Select a file to preview its contents"
     }
   }
 }
