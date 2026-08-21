@@ -329,12 +329,25 @@ Item {
   // near-universal isatty()-gated behavior CLI progress bars use, not
   // specific to one tool -- it's why onLineRead only ever saw whole-line
   // events (volume switches) and never the live intra-file percentage.
-  // `script` (util-linux, always present, no new dependency) is the
-  // standard way to fake a controlling terminal for exactly this case.
-  // -e makes it propagate the real child exit code (needed by
-  // archiveProc.onFinished); -q/-c: quiet, run this one command.
+  // `script` (util-linux) is the standard way to fake a controlling
+  // terminal for exactly this case. -e makes it propagate the real child
+  // exit code (needed by archiveProc.onFinished); -q/-c: quiet, run this
+  // one command.
+  //
+  // NOT unconditionally though: some distros split the binary out of the
+  // core util-linux package (Fedora ships it as `util-linux-script`), and
+  // when it is absent the process never starts, so every compress/extract
+  // silently hung with the transfer queue jammed behind it. Probing with
+  // `command -v` inside the wrapper costs nothing and degrades gracefully:
+  // without `script` the job still runs to completion and reports
+  // success/failure normally -- it only loses the live intra-file
+  // percentage (isatty-gated in the archivers), keeping the whole-line
+  // events (per-file/volume lines) that onLineRead also parses.
   function _ptyArgs(cmd) {
-    return ["script", "-qec", "bash -c " + Util.shellQuote(cmd), "/dev/null"]
+    var inner = "bash -c " + Util.shellQuote(cmd)
+    return ["bash", "-c",
+      "if command -v script >/dev/null 2>&1; then exec script -qec "
+        + Util.shellQuote(inner) + " /dev/null; else exec " + inner + "; fi"]
   }
 
   function runActionWithProgress(cmd, busyLabel, total, onSuccess, volumes) {

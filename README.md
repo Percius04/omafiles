@@ -276,6 +276,7 @@ Everything below is truly optional in the sense that OmaFiles starts and runs fi
 | **p7zip** | Extract `.7z` archives, and create them via the "Compress to .7z" option (browsing archives, and `.tar`-family extract/compress including `.tar.gz`, don't need this) |
 | **unrar** | Extract `.rar` archives |
 | **xdg-mime** | Registering Omafiles as the default file manager on first launch, and resolving the default app for "open with default" double-clicks (both best-effort, guarded by `command -v`) |
+| **script (util-linux)** | Live intra-file percentage on archive compress/extract progress bars (fakes the TTY the archivers' isatty-gated progress output needs). Note some distros split it out of the core util-linux package — Fedora ships it as `util-linux-script`. Without it, jobs still run and complete normally, just without the live percentage |
 
 **No longer required:** `xdg-terminal-exec`, `gio` (shell commands), `ffprobe`, `python-pygments`, `content-search.sh`, `empty-trash.sh`, and `inotifywait` have all been replaced by native C++ implementations.
 
