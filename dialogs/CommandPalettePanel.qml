@@ -141,7 +141,11 @@ Item {
     // the warning printed on every single launch.
     EmptyState {
       visible: root.commands.length === 0
-      centerOn: paletteList
+      // paletteColumn, NOT paletteList: anchors.centerIn only accepts a
+      // parent or sibling, and the list stayed inside the Column this
+      // EmptyState moved out of ("Cannot anchor to an item that isn't a
+      // parent or sibling" -- caught in the journal right after the move).
+      centerOn: paletteColumn
       message: root.query ? "No results for “" + root.query + "”" : "No commands available"
       subMessage: root.query ? "Try a broader search" : ""
     }
