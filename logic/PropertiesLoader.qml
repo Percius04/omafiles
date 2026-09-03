@@ -93,6 +93,7 @@ Item {
     PropertiesState.propertiesPerms = info.perms || ""
     PropertiesState.propertiesOwner = info.ownerGroup || ""
     PropertiesState.propertiesMtime = info.mtime || ""
+    PropertiesState.propertiesBtime = info.btime || ""
 
     // Deliberately does NOT touch requestDirSize if entry is not a folder
     // (the size is already known without a native call). A previous dir-size

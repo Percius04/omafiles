@@ -14,6 +14,7 @@ QtObject {
   property string propertiesPerms: ""
   property string propertiesOwner: ""
   property string propertiesMtime: ""
+  property string propertiesBtime: ""  // "" = filesystem reports no birth time
   // Race guard: showProperties()/showPropertiesForSelection() bump
   // this counter each time the panel is opened for a new item, and
   // record that number as the "owner" of the stat/du they launch. If the user

@@ -130,6 +130,7 @@ Item {
     perms: PropertiesState.propertiesPerms
     owner: PropertiesState.propertiesOwner
     mtime: PropertiesState.propertiesMtime
+    btime: PropertiesState.propertiesBtime
     onCloseRequested: PropertiesState.propertiesOpen = false
   }
 

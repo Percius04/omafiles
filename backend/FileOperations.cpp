@@ -4,6 +4,7 @@
 #include <QMetaObject>
 #include <QThreadPool>
 #include <QRunnable>
+#include <fcntl.h>
 #include <grp.h>
 #include <pwd.h>
 #include <sys/stat.h>
@@ -99,13 +100,16 @@ QStringList FileOperations::octalModes(const QStringList &paths) const {
 }
 
 QVariantMap FileOperations::statInfo(const QString &path) const {
-  struct stat st;
-  if (::lstat(QFile::encodeName(path).constData(), &st) != 0)
+  // statx, not lstat: same cost, and the only way to get the creation
+  // (birth) time -- see the same swap in DirectoryModel's scan loop.
+  struct statx st;
+  if (::statx(AT_FDCWD, QFile::encodeName(path).constData(), AT_SYMLINK_NOFOLLOW,
+              STATX_BASIC_STATS | STATX_BTIME, &st) != 0)
     return {};
 
   QChar type = QLatin1Char('-');
-  if (S_ISDIR(st.st_mode)) type = QLatin1Char('d');
-  else if (S_ISLNK(st.st_mode)) type = QLatin1Char('l');
+  if (S_ISDIR(st.stx_mode)) type = QLatin1Char('d');
+  else if (S_ISLNK(st.stx_mode)) type = QLatin1Char('l');
 
   auto rwx = [](mode_t m, mode_t r, mode_t w, mode_t x) {
     QString s;
@@ -114,22 +118,29 @@ QVariantMap FileOperations::statInfo(const QString &path) const {
     s += (m & x) ? QLatin1Char('x') : QLatin1Char('-');
     return s;
   };
-  const QString perms = QString(type) + rwx(st.st_mode, S_IRUSR, S_IWUSR, S_IXUSR) +
-                        rwx(st.st_mode, S_IRGRP, S_IWGRP, S_IXGRP) +
-                        rwx(st.st_mode, S_IROTH, S_IWOTH, S_IXOTH);
-  const QString octal = QString::number(st.st_mode & 07777, 8);
+  const QString perms = QString(type) + rwx(st.stx_mode, S_IRUSR, S_IWUSR, S_IXUSR) +
+                        rwx(st.stx_mode, S_IRGRP, S_IWGRP, S_IXGRP) +
+                        rwx(st.stx_mode, S_IROTH, S_IWOTH, S_IXOTH);
+  const QString octal = QString::number(st.stx_mode & 07777, 8);
 
-  struct passwd *pw = ::getpwuid(st.st_uid);
-  struct group *gr = ::getgrgid(st.st_gid);
-  const QString owner = pw ? QString::fromLocal8Bit(pw->pw_name) : QString::number(st.st_uid);
-  const QString grp = gr ? QString::fromLocal8Bit(gr->gr_name) : QString::number(st.st_gid);
+  struct passwd *pw = ::getpwuid(st.stx_uid);
+  struct group *gr = ::getgrgid(st.stx_gid);
+  const QString owner = pw ? QString::fromLocal8Bit(pw->pw_name) : QString::number(st.stx_uid);
+  const QString grp = gr ? QString::fromLocal8Bit(gr->gr_name) : QString::number(st.stx_gid);
 
-  const QDateTime mtime = QDateTime::fromSecsSinceEpoch(st.st_mtim.tv_sec).toLocalTime();
+  const QString fmt = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+  const QDateTime mtime = QDateTime::fromSecsSinceEpoch(st.stx_mtime.tv_sec).toLocalTime();
+  // "" when the filesystem reports no birth time; the Properties panel
+  // hides the row rather than showing a fake epoch.
+  const QString btime = (st.stx_mask & STATX_BTIME)
+      ? QDateTime::fromSecsSinceEpoch(st.stx_btime.tv_sec).toLocalTime().toString(fmt)
+      : QString();
 
   QVariantMap out;
   out[QStringLiteral("perms")] = perms + QStringLiteral(" ") + octal;
   out[QStringLiteral("ownerGroup")] = owner + QStringLiteral(":") + grp;
-  out[QStringLiteral("mtime")] = mtime.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+  out[QStringLiteral("mtime")] = mtime.toString(fmt);
+  out[QStringLiteral("btime")] = btime;
   return out;
 }
 

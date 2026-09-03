@@ -84,6 +84,11 @@ public:
     bool isSymlink = false;
     qint64 size = 0;
     qint64 mtime = 0;
+    // Creation (birth) time, seconds since the epoch. 0 where the
+    // filesystem does not report one (statx left STATX_BTIME out of the
+    // result mask: some network mounts, tmpfs on older kernels, ext4
+    // volumes formatted without 256-byte inodes).
+    qint64 btime = 0;
   };
 
   // Launches the ASYNCHRONOUS listing of `path`. `showHidden` includes

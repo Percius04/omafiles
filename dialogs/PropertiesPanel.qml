@@ -23,6 +23,7 @@ Item {
   property string perms: ""
   property string owner: ""
   property string mtime: ""
+  property string btime: ""  // "" hides the Created row (no birth time on this filesystem)
 
   signal closeRequested()
 
@@ -57,7 +58,7 @@ Item {
             { label: "Permissions", value: root.perms },
             { label: "Owner", value: root.owner },
             { label: "Modified", value: root.mtime }
-          ]
+          ].concat(root.btime ? [{ label: "Created", value: root.btime }] : [])
 
       Row {
         required property var modelData

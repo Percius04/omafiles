@@ -2,15 +2,15 @@ pragma Singleton
 import QtQuick
 import "../shared/Utils.js" as Utils
 
-// Current sort criterion (name/size/date/type, asc/desc) --
+// Current sort criterion (name/size/modified/created/type, asc/desc) --
 // thirteenth singleton of the state/ layer. Includes sorting logic directly,
 // eliminating the need for SortOps.qml.
 QtObject {
   property string sortKey: "name"
   property bool sortDesc: false
 
-  readonly property var sortKeys: ["name", "size", "mtime", "type"]
-  readonly property var sortKeyLabels: ({ name: "Name", size: "Size", mtime: "Date", type: "Type" })
+  readonly property var sortKeys: ["name", "size", "mtime", "btime", "type"]
+  readonly property var sortKeyLabels: ({ name: "Name", size: "Size", mtime: "Modified", btime: "Created", type: "Type" })
 
   readonly property bool isDefaultOrder: sortKey === "name" && !sortDesc
 
@@ -28,6 +28,11 @@ QtObject {
       result = a.size - b.size
     } else if (sortKey === "mtime") {
       result = a.mtime - b.mtime
+    } else if (sortKey === "btime") {
+      // btime is 0 where the filesystem reports no birth time, and absent
+      // on entries that never came from DirectoryModel (archive listings):
+      // both fall through to the name tie-break.
+      result = (a.btime || 0) - (b.btime || 0)
     } else if (sortKey === "type") {
       var ea = Utils.extOf(a.name), eb = Utils.extOf(b.name)
       result = ea < eb ? -1 : (ea > eb ? 1 : 0)

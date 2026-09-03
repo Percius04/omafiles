@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Sort by creation date
+
+* **`Created` joins the sort cycle** (`s`): Name -> Size -> Modified -> Created -> Type. The former `Date` key is now labelled `Modified`, since there are two dates. Both are in the command palette as "Sort by date modified" / "Sort by date created".
+* **Creation time comes from `statx`**, which replaces the `lstat`/`stat` pair in `DirectoryModel` and `FileOperations::statInfo` at the same syscall count. Filesystems that report no birth time (some network mounts, older `ext4` layouts) yield 0 and the sort falls back to name order.
+* **Properties shows a `Created` row** when the filesystem reports one; row subtitles show the creation time while the `Created` sort is active.
+
 ## [1.2.0] - 2026-08-21
 
 ### Grid & List view modes

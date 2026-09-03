@@ -18,6 +18,26 @@ QtObject {
           })
         })
 
+        sc.add("Backend.DirectoryModel btime (creation time) on every entry", function (done) {
+          sc._listOnce(sc.listDir, function (e) {
+            var now = Math.floor(Date.now() / 1000)
+            var missing = e.filter(function (x) { return typeof x.btime !== "number" })
+            if (missing.length) {
+              done(false, "no numeric btime on " + missing.map(function (x) { return x.name }).join(", "))
+              return
+            }
+            var reported = e.filter(function (x) { return x.btime > 0 })
+            var bad = reported.filter(function (x) { return x.btime > now + 5 || x.btime < x.mtime - 86400 })
+            if (bad.length) {
+              done(false, "implausible btime on " + bad.map(function (x) { return x.name + "=" + x.btime }).join(", "))
+              return
+            }
+            done(true, reported.length === 0
+                 ? "filesystem reports no birth time; every btime is 0 (Created sort falls back to name)"
+                 : reported.length + "/" + e.length + " entries carry a birth time")
+          })
+        })
+
         sc.add("QFileSystemWatcher create event", function (done) {
           var m = sc._dmFactory.createObject(sc)
           var watched = m.watch(sc.watchDir)

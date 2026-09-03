@@ -64,7 +64,10 @@ Item {
       var fc = FolderCountState.counts[Utils.joinPath(atPath, entry.name)]
       if (typeof fc === "number" && fc >= 0) parts.push(Utils.formatItemCount(fc))
     }
-    var rel = Utils.relativeTime(entry.mtime)
+    // Sorted by Created: show the creation time so the row explains its
+    // own position. Falls back to mtime where the filesystem has no btime.
+    var when = (SortState.sortKey === "btime" && entry.btime) ? entry.btime : entry.mtime
+    var rel = Utils.relativeTime(when)
     if (rel) parts.push(rel)
     return parts.join(" · ")
   }

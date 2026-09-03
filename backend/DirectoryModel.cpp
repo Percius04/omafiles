@@ -10,6 +10,7 @@
 #include <algorithm>
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -123,15 +124,26 @@ int gatherOne(const QByteArray &p, bool showHidden,
     // link to resolve. Behaviour identical (a path that stat resolves
     // but lstat does not is impossible: lstat still resolves the path, it just
     // does not deref the last component).
-    struct stat ls;
-    const bool lok = (::lstat(full.constData(), &ls) == 0);
-    const bool isLink = lok && S_ISLNK(ls.st_mode);
-    struct stat s;
+    //
+    // statx rather than lstat/stat: same syscall count and cost, and it is
+    // the only call that reports the creation (birth) time, which struct
+    // stat has no field for. STATX_BTIME is a request, not a promise: the
+    // returned stx_mask says whether the filesystem actually filled it in.
+    constexpr unsigned kMask = STATX_BASIC_STATS | STATX_BTIME;
+    const auto birth = [](const struct statx &x) -> qint64 {
+      return (x.stx_mask & STATX_BTIME) ? static_cast<qint64>(x.stx_btime.tv_sec)
+                                        : 0;
+    };
+    struct statx ls;
+    const bool lok = (::statx(AT_FDCWD, full.constData(), AT_SYMLINK_NOFOLLOW,
+                              kMask, &ls) == 0);
+    const bool isLink = lok && S_ISLNK(ls.stx_mode);
+    struct statx s;
     bool followed;
     if (isLink) {
-      followed = (::stat(full.constData(), &s) == 0); // follow the link
+      followed = (::statx(AT_FDCWD, full.constData(), 0, kMask, &s) == 0); // follow the link
     } else {
-      s = ls; // non-symlink: lstat is already the stat, no second syscall
+      s = ls; // non-symlink: the NOFOLLOW statx is already the stat, no second syscall
       followed = lok;
     }
 
@@ -141,27 +153,31 @@ int gatherOne(const QByteArray &p, bool showHidden,
     e.link = isLink ? (followed ? QStringLiteral("valid")
                                 : QStringLiteral("broken"))
                     : QString();
-    e.isDir = followed && S_ISDIR(s.st_mode);
+    e.isDir = followed && S_ISDIR(s.stx_mode);
 
     if (e.isDir) {
       e.type = QStringLiteral("dir");
       e.size = 0; // the script forces size 0 on folders
-      e.mtime = static_cast<qint64>(s.st_mtime);
+      e.mtime = static_cast<qint64>(s.stx_mtime.tv_sec);
+      e.btime = birth(s);
       dirs.push_back(std::move(e));
     } else {
       e.type = QStringLiteral("file");
       if (followed) {
         // Normal file or symlink that resolves: data of the target.
-        e.size = static_cast<qint64>(s.st_size);
-        e.mtime = static_cast<qint64>(s.st_mtime);
+        e.size = static_cast<qint64>(s.stx_size);
+        e.mtime = static_cast<qint64>(s.stx_mtime.tv_sec);
+        e.btime = birth(s);
       } else if (lok) {
-        // Broken symlink: fallback to lstat (size = length of the target,
-        // mtime = of the link itself), like the `stat -c` without -L.
-        e.size = static_cast<qint64>(ls.st_size);
-        e.mtime = static_cast<qint64>(ls.st_mtime);
+        // Broken symlink: fallback to the link's own stat (size = length of
+        // the target, times = of the link itself), like `stat -c` without -L.
+        e.size = static_cast<qint64>(ls.stx_size);
+        e.mtime = static_cast<qint64>(ls.stx_mtime.tv_sec);
+        e.btime = birth(ls);
       } else {
         e.size = 0;
         e.mtime = 0;
+        e.btime = 0;
       }
       files.push_back(std::move(e));
     }
@@ -209,7 +225,7 @@ void sortInto(QVector<DirectoryModel::Entry> &dirs,
 
 // 64-bit hash (FNV-1a) of the VISIBLE content of the listing, in order. Covers
 // exactly the fields that Utils.entriesEqual compared and that would decide a
-// relayout: name, size, mtime, isDir (type) and link. Runs on the worker thread.
+// relayout: name, size, mtime, btime, isDir (type) and link. Runs on the worker thread.
 // Phase 27 (PERF_AUDIT_RC1). Returned as hex so QML compares it as a
 // string (a JS double does not represent 64 exact bits).
 QString signatureOf(const QVector<DirectoryModel::Entry> &rows) {
@@ -225,6 +241,7 @@ QString signatureOf(const QVector<DirectoryModel::Entry> &rows) {
     mix(0x1F); // field separator (avoids collisions by concatenation)
     mix(static_cast<quint64>(e.size));
     mix(static_cast<quint64>(e.mtime));
+    mix(static_cast<quint64>(e.btime));
     mix(e.isDir ? 1u : 0u);
     // link: "" -> 0, "valid" -> 1, "broken" -> 2
     mix(e.link.isEmpty() ? 0u
@@ -373,6 +390,7 @@ QVariantList DirectoryModel::entries() const {
     m[QStringLiteral("name")] = e.name;
     m[QStringLiteral("size")] = e.size;
     m[QStringLiteral("mtime")] = e.mtime;
+    m[QStringLiteral("btime")] = e.btime;
     m[QStringLiteral("link")] = e.link;
     out.push_back(m);
   }

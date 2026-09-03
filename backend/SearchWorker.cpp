@@ -8,6 +8,15 @@
 #include <QThreadPool>
 #include <QVariantMap>
 
+namespace {
+// Seconds since the epoch, 0 where the filesystem reports no birth time --
+// the same contract as DirectoryModel::Entry::btime.
+qint64 birthSecs(const QFileInfo &fi) {
+  const QDateTime b = fi.birthTime();
+  return b.isValid() ? static_cast<qint64>(b.toSecsSinceEpoch()) : 0;
+}
+} // namespace
+
 SearchWorker::SearchWorker(QObject *parent) : QObject(parent) {}
 
 SearchWorker::~SearchWorker() {
@@ -66,6 +75,7 @@ void SearchWorker::search(const QString &root, const QString &query,
           isDir ? qint64(0) : static_cast<qint64>(fi.size());
       e[QStringLiteral("mtime")] =
           static_cast<qint64>(fi.lastModified().toSecsSinceEpoch());
+      e[QStringLiteral("btime")] = birthSecs(fi);
       e[QStringLiteral("link")] = QString();
       out.append(e);
       // Cap of 201: the 201st only serves to know there were more than 200.
@@ -182,6 +192,7 @@ void SearchWorker::searchContent(const QString &root, const QString &query,
           e[QStringLiteral("size")] = static_cast<qint64>(fi.size());
           e[QStringLiteral("mtime")] =
               static_cast<qint64>(fi.lastModified().toSecsSinceEpoch());
+          e[QStringLiteral("btime")] = birthSecs(fi);
           e[QStringLiteral("link")] = QString();
           out.append(e);
 
