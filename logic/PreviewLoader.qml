@@ -47,7 +47,17 @@ Item {
   }
 
   function loadPreview(entry) {
-    if (!entry || entry.type === "dir") return
+    // A directory (or no entry) has no preview: bail WITHOUT leaving the
+    // previous file's preview state behind. In particular previewIsText must
+    // be reset, otherwise a later directory listing keeps the old file's text
+    // ghosted behind it (the third-column dir listing is not a text entry but
+    // would still render as text because isTextEntry checks previewIsText).
+    if (!entry || entry.type === "dir") {
+      PreviewContentState.previewIsText = false
+      PreviewContentState.previewText = ""
+      PreviewContentState.previewHighlighted = ""
+      return
+    }
     PreviewContentState.previewRequestId += 1
     var reqId = PreviewContentState.previewRequestId
     PreviewContentState.previewEntry = entry

@@ -8,8 +8,8 @@ import Omafiles.Backend as Backend
 // _goToPath/refresh (which do stay in core, too
 // central to move) read/write this constantly. The initial values
 // are just a placeholder -- open() always rewrites them
-// before the user sees anything (with the real payload, or restoring
-// the previous session via Persistence.loadSession()).
+// before the user sees anything (with the real payload, or defaulting
+// to a single "$HOME" panel -- no session restore).
 QtObject {
   readonly property string _initialHome: Backend.Env.get("HOME")
   property var tabs: [{ path: _initialHome, history: [_initialHome], historyIndex: 0 }]

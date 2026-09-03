@@ -40,7 +40,7 @@ Item {
     MountsState.ejectingDevice = mount.path // Using ejectingDevice to signify busy state
     _lastNetworkUnmountWasInside = NavState.currentPath === mount.path || NavState.currentPath.indexOf(mount.path + "/") === 0
     _lastNetworkUnmountTabIndex = TabsState.activeTabIndex
-    Backend.NetworkResolver.disconnectMount(mount.path)
+    Backend.NetworkResolver.disconnectMount(mount.uri)
   }
 
   property bool _lastNetworkUnmountWasInside: false
@@ -212,7 +212,7 @@ Item {
       }
     }
 
-    function onMountFinished(success, errorMessage, localPath) {
+    function onMountFinished(success, errorMessage, localPath, homePath) {
       DialogsState.networkConnecting = false
       if (success) {
         // Saved connection profiles (V1.1, headline #4): only the URI (no
@@ -225,8 +225,13 @@ Item {
         var parsed = Backend.NetworkMounts.list()
         MountsState.networkMounts = parsed
         var fresh = parsed.filter(function (m) { return before.indexOf(m.path) < 0 })
-        if (fresh.length > 0) navController.navigateTo(fresh[0].path)
-        else if (localPath) navController.navigateTo(localPath)
+        // Nautilus-like: open the mount's default location (remote home dir
+        // for sftp) rather than the mount root "/". backend exposes it via
+        // NetworkResolver (g_mount_get_default_location).
+        var target = homePath
+        if (!target && fresh.length > 0) target = fresh[0].path
+        if (!target) target = localPath
+        if (target) navController.navigateTo(target)
       } else {
         DialogsState.connectServerError = errorMessage || "Connection failed"
       }

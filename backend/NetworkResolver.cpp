@@ -22,6 +22,7 @@ public:
     gboolean success = g_file_mount_enclosing_volume_finish(G_FILE(source), res, &error);
     
     QString localPath;
+    QString homePath;
     if (success) {
       GMount *mount = g_file_find_enclosing_mount(G_FILE(source), nullptr, nullptr);
       if (mount) {
@@ -32,6 +33,24 @@ public:
           g_free(path);
         }
         g_object_unref(root);
+
+        // Nautilus-like default location: shining through the GVfs-fuse
+        // path so a fresh sftp mount opens the remote HOME instead of the
+        // remote filesystem ROOT (2026-08-30). For sftp, g_mount_get_
+        // default_location() is the logged-in user's home dir; the other
+        // schemes report their root, which yields the mount root itself.
+        GFile *def = static_cast<GFile *>(g_mount_get_default_location(mount));
+        if (def) {
+          QUrl defUrl(QString::fromUtf8(g_file_get_uri(def)));
+          const QString defaultPath = defUrl.path();
+          if (!defaultPath.isEmpty() && defaultPath != QLatin1String("/"))
+            homePath = localPath + defaultPath;
+          else
+            homePath = localPath;
+          g_object_unref(def);
+        } else {
+          homePath = localPath;
+        }
         g_object_unref(mount);
       }
     }
@@ -40,7 +59,7 @@ public:
     if (error) g_error_free(error);
 
     self->currentOp = nullptr;
-    emit self->q->mountFinished(success, errorMsg, localPath);
+    emit self->q->mountFinished(success, errorMsg, localPath, homePath);
     
     // Clean up
     g_object_unref(source);

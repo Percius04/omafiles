@@ -64,7 +64,7 @@ Item {
           else { if (controllers) controllers.navController.navigateTo(mount.path) }
         }
         onMountEjectRequested: function (mount) { if (controllers) controllers.mountOps.ejectMount(mount) }
-        onNetworkMountOpened: function (mount) { if (controllers) controllers.navController.navigateTo(mount.path) }
+        onNetworkMountOpened: function (mount) { if (controllers) controllers.navController.navigateTo(mount.homePath || mount.path) }
         onConnectRequested: if (controllers) controllers.mountOps.startConnectToServer()
         onFilesDropped: function (drop, destPath) { if (controllers) controllers.actionEngine.handleFilesDropped(drop, destPath) }
         onDropHoverChanged: function (path) { DropHoverState.dropHoverPath = path }
@@ -149,10 +149,8 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             canGoBack: TabsState.navHistoryIndex > 0
             canGoForward: TabsState.navHistoryIndex < TabsState.navHistory.length - 1
-            canGoUp: NavState.currentPath !== "/"
             onBackRequested: if (controllers) controllers.navController.navBack()
             onForwardRequested: if (controllers) controllers.navController.navForward()
-            onUpRequested: if (controllers) controllers.navController.goUp()
           }
 
           Item {
@@ -165,7 +163,21 @@ Item {
               anchors.fill: parent
               visible: !EditModeState.editingPath
               cursorShape: Qt.IBeamCursor
-              onClicked: if (controllers) controllers.searchOps.startEditPath()
+              // A plain single click navigates to the segment under the pointer.
+              // A double click on a segment opens the editor instead: Qt emits
+              // onClicked for the FIRST click of a pair, then onDoubleClicked for
+              // the second -- so we always navigate on the single click, and the
+              // (higher-priority) double-click still gets through via
+              // onDoubleClicked to switch into editing. A double click on empty
+              // path space is left as just a navigate (no editor).
+              onClicked: function (mouse) {
+                var p = breadcrumbRow.pathAt(mouse.x)
+                if (p && controllers && controllers.navController) controllers.navController.navigateTo(p)
+              }
+              onDoubleClicked: function (mouse) {
+                if (breadcrumbRow.pathAt(mouse.x) === "") return
+                if (controllers) controllers.searchOps.startEditPath()
+              }
             }
 
             BreadcrumbSegments {
@@ -243,6 +255,21 @@ Item {
             gTimer: mainLayout.gTimer
           }
 
+          // While the path is being edited, a double click anywhere in the
+          // listing area cancels editing and brings back the breadcrumb
+          // (instead of being stuck until Enter/Escape). Only present while
+          // editingPath is on, so it never otherwise steals clicks.
+          MouseArea {
+            anchors.fill: parent
+            z: 100
+            enabled: EditModeState.editingPath
+            cursorShape: Qt.IBeamCursor
+            onDoubleClicked: {
+              EditModeState.editingPath = false
+              list.forceActiveFocus()
+            }
+          }
+
         }
         } // end activeTop (Column)
 
@@ -290,6 +317,23 @@ Item {
             }
           } // end activePanel (Item)
         } // end panelsRow (Item)
+      }
+    }
+
+    // Mouse back/forward side buttons (Qt.BackButton/ForwardButton): the
+    // same history navigation as the nav-bar arrows, Nautilus/Finder-style.
+    // It accepts ONLY those two buttons, so left/right/middle clicks and
+    // the wheel pass straight through to the widgets below. Disabled while
+    // a blocking overlay is open (context menu / dialog / inline edit), so
+    // navigation can't fire behind one.
+    MouseArea {
+      anchors.fill: parent
+      z: 10000
+      enabled: root.opened && !root.hasBlockingOverlay
+      acceptedButtons: Qt.BackButton | Qt.ForwardButton
+      onClicked: function (mouse) {
+        if (mouse.button === Qt.BackButton && controllers) controllers.navController.navBack()
+        else if (mouse.button === Qt.ForwardButton && controllers) controllers.navController.navForward()
       }
     }
 

@@ -91,7 +91,6 @@ Item {
     id: persistence
     root: registry.root
     tabOps: tabOps
-    navController: navController
   }
 
   ActionEngine {

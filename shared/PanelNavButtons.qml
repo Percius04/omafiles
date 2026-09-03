@@ -13,10 +13,8 @@ Row {
 
   property bool canGoBack: false
   property bool canGoForward: false
-  property bool canGoUp: false
   signal backRequested()
   signal forwardRequested()
-  signal upRequested()
 
   spacing: Style.spacing.controlGap
 
@@ -52,24 +50,6 @@ Row {
       anchors.centerIn: parent
       // md-arrow_right, verified against the font's real cmap.
       text: "\u{F0054}"
-      fontFamily: Style.font.family
-      fontSize: Style.font.icon
-      color: parent.foreground
-    }
-  }
-
-  Button {
-    width: Style.spacing.controlHeight
-    height: Style.spacing.controlHeight
-    anchors.verticalCenter: parent.verticalCenter
-    foreground: root.canGoUp ? Color.menu.text : Qt.darker(Color.menu.text, 1.6)
-    onClicked: root.upRequested()
-    Accessible.role: Accessible.Button
-    Accessible.name: "Up"
-
-    OpticalGlyph {
-      anchors.centerIn: parent
-      text: "󰅃"
       fontFamily: Style.font.family
       fontSize: Style.font.icon
       color: parent.foreground

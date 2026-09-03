@@ -1,5 +1,6 @@
 import "../shared/Utils.js" as Utils
 import QtQuick
+import qs.Commons
 import "../state"
 import Omafiles.Backend as Backend
 
@@ -59,9 +60,8 @@ Item {
       { label: "Compress to .7z", enabled: hasSelection, run: function () { actionEngine.compressSelected("7z") } },
       { label: "Bulk rename...", enabled: SelectionState.selectedIndices.length > 1, run: function () { actionEngine.startBulkRename() } },
       { label: "Find duplicates here...", run: function () { actionEngine.startDuplicateFinder(NavState.currentPath) } },
-      { label: "Permissions...", enabled: hasSelection, run: function () { propertiesLoader.startChmod(SelectionState.selectedEntries()) } },
       { label: "Make link", enabled: !!entry, run: function () { if (entry) actionEngine.makeLinkFor(entry) } },
-      { label: "Properties", enabled: hasSelection, run: function () { propertiesLoader.showPropertiesForSelection() } },
+      { label: "Properties", enabled: hasSelection, run: function () { propertiesLoader.showDetailsForSelection() } },
       { label: "Keyboard shortcuts", run: function () { DialogsState.shortcutsHelpOpen = true } }
     ]
     if (NavState.currentPath === Paths.trashDir) {
@@ -81,12 +81,17 @@ Item {
       }
       if (entry.type === "dir") {
         cmds.push({ label: "Open in new tab", run: function () { tabOps.openInNewTab(fullPath) } })
+      } else {
+        var pext = Utils.extOf(entry.name)
+        if (pext === "sh" || pext === "py") {
+          cmds.push({ label: "Run " + entry.name, run: function () { commandFacade.runScriptFile(entry) } })
+        }
       }
     }
     if (ArchiveState.inArchive) {
       var archiveBlocked = ["New folder", "New file", "Rename", "Copy", "Cut", "Copy path", "Paste", "Delete",
-        "Compress to .zip", "Compress to .tar.gz", "Compress to .7z", "Bulk rename...", "Find duplicates here...", "Permissions...", "Make link", "Properties",
-        "Search", "Add to bookmarks", "Open in new tab", "Extract here", "Mount ISO", "Empty trash", "Restore"]
+        "Compress to .zip", "Compress to .tar.gz", "Compress to .7z", "Bulk rename...", "Find duplicates here...", "Make link", "Properties",
+        "Search", "Add to bookmarks", "Open in new tab", "Empty trash", "Restore"]
       cmds = cmds.filter(function (c) { return archiveBlocked.indexOf(c.label) < 0 })
     }
     if (!ArchiveState.inArchive && customActions) {
@@ -159,7 +164,11 @@ Item {
           actionEngine.startDuplicateFinder(dirFullPath)
         } })
       } else {
-        actions.push({ label: "Open with...", action: function () { commandFacade.showOpenWith(entries[0]) } })
+        var ext = Utils.extOf(entries[0].name)
+        if (ext === "sh" || ext === "py") {
+          actions.push({ label: "Run", action: function () { commandFacade.runScriptFile(entries[0]) } })
+        }
+        actions.push({ label: "Open with", items: commandFacade.openWithItems(entries[0]) })
       }
     }
 
@@ -167,8 +176,13 @@ Item {
     actions.push({ label: "Cut" + suffix, action: function () { actionEngine.cutSelected() } })
     actions.push({ label: "Copy path" + suffix, action: function () { actionEngine.copyPathAbsoluteFor(entries) } })
     actions.push({ label: "Copy relative path" + suffix, action: function () { actionEngine.copyPathRelativeFor(entries) } })
-    actions.push({ label: "Copy URI" + suffix, action: function () { actionEngine.copyPathUriFor(entries) } })
     if (ClipboardState.clipboardPaths.length > 0) actions.push({ label: "Paste here", action: function () { actionEngine.paste() } })
+
+    var compressItems = [
+      { label: "Compress to .zip", action: function () { actionEngine.compressSelected("zip") } },
+      { label: "Compress to .tar.gz", action: function () { actionEngine.compressSelected("tar.gz") } },
+      { label: "Compress to .7z", action: function () { actionEngine.compressSelected("7z") } }
+    ]
 
     if (!multi) {
       actions.push({ label: "Rename", action: function () { actionEngine.startRename(SelectionState.selectedIndex) } })
@@ -177,25 +191,20 @@ Item {
       if (!BookmarksState.isBookmarked(fullPath)) {
         actions.push({ label: "Add to bookmarks", action: function () { BookmarksState.addBookmark(fullPath, entries[0].name, entries[0].type) } })
       }
-      actions.push({ label: "Compress to .zip", action: function () { actionEngine.compressSelected("zip") } })
-      actions.push({ label: "Compress to .tar.gz", action: function () { actionEngine.compressSelected("tar.gz") } })
-      actions.push({ label: "Compress to .7z", action: function () { actionEngine.compressSelected("7z") } })
+      actions.push({ label: "Compress", items: compressItems })
       if (archiveBrowser.isArchive(entries[0])) {
-        actions.push({ label: "Extract here", action: function () { actionEngine.extractHere(entries[0]) } })
+        actions.push({ label: "Extract", items: [{ label: "Extract here", action: function () { actionEngine.extractHere(entries[0]) } }] })
       }
       if (actionEngine.isIso(entries[0])) {
         actions.push({ label: "Mount", action: function () { mountOps.mountIso(entries[0]) } })
       }
     } else {
       actions.push({ label: "Bulk rename...", action: function () { actionEngine.startBulkRename() } })
-      actions.push({ label: "Compress to .zip", action: function () { actionEngine.compressSelected("zip") } })
-      actions.push({ label: "Compress to .tar.gz", action: function () { actionEngine.compressSelected("tar.gz") } })
-      actions.push({ label: "Compress to .7z", action: function () { actionEngine.compressSelected("7z") } })
+      actions.push({ label: "Compress", items: compressItems })
     }
 
-    actions.push({ label: "Permissions...", action: function () { propertiesLoader.startChmod(entries) } })
+    actions.push({ label: "Properties", action: function () { propertiesLoader.showDetailsForSelection() } })
     actions.push({ label: "Delete" + suffix, destructive: true, action: function () { actionEngine.requestDelete() } })
-    actions.push({ label: "Properties" + suffix, action: function () { propertiesLoader.showPropertiesForSelection() } })
     actions.push({ label: NavState.showHidden ? "Hide dotfiles" : "Show dotfiles", action: function () { searchOps.toggleHidden() } })
     if (customActions) {
       actions = actions.concat(customActions.menuActions(entries))
@@ -261,12 +270,53 @@ Item {
     ]
   }
 
+  // Builds the "Open with" submenu items for `entry`: its registered
+  // applications (Backend.MimeResolver is synchronous) followed by a
+  // trailing "Other application..." item that opens a web search for apps
+  // able to open the file's format. Always non-empty so the flyout always
+  // has content even when no apps are registered for the file type.
+  function openWithItems(entry) {
+    if (!entry || entry.type === "dir") return []
+    var openPath = Utils.entryPath(NavState.currentPath, entry)
+    var apps = Backend.MimeResolver.getAppsForFile(openPath)
+    var items = []
+    for (var i = 0; i < apps.length; i++) {
+      var app = apps[i]
+      items.push({ label: app.name, action: (function (desktopId) {
+        return function () {
+          Backend.MimeResolver.launchApp(desktopId, openPath)
+          BookmarksState.addRecent(openPath, entry.name)
+        }
+      })(app.id) })
+    }
+    var ext = Utils.extOf(entry.name)
+    items.push({ label: "Other application...", action: function () {
+      var query = encodeURIComponent(ext ? "program to open ." + ext + " files" : "program to open " + entry.name)
+      Backend.Detached.run(["xdg-open", "https://duckduckgo.com/?q=" + query])
+    } })
+    return items
+  }
+
   function showOpenWith(entry) {
     if (!entry || entry.type === "dir") return
     PreviewState.openWithEntry = entry
     var openPath = Utils.entryPath(NavState.currentPath, entry)
     PreviewState.openWithApps = Backend.MimeResolver.getAppsForFile(openPath)
     PreviewState.openWithOpen = true
+  }
+
+  // Runs a .sh / .py script in the background (working directory set to the
+  // script's own folder, mirroring CustomActions so relative paths in the
+  // script resolve where the user expects). Fire-and-forget: no window.
+  function runScriptFile(entry) {
+    if (!entry) return
+    var ext = Utils.extOf(entry.name)
+    if (ext !== "sh" && ext !== "py") return
+    var fullPath = Utils.entryPath(NavState.currentPath, entry)
+    var interp = ext === "py" ? "python3" : "bash"
+    Backend.Detached.run(["bash", "-lc", "cd -- " + Util.shellQuote(NavState.currentPath) + " && " + interp + " " + Util.shellQuote(fullPath)])
+    BookmarksState.addRecent(fullPath, entry.name)
+    Backend.Notifier.notify("Running: " + entry.name)
   }
 
   function launchWith(desktopId) {

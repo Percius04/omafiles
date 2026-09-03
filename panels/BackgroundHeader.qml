@@ -22,14 +22,8 @@ Row {
     id: bgNavButtons
     canGoBack: (root.modelData.historyIndex || 0) > 0
     canGoForward: (root.modelData.historyIndex || 0) < (root.modelData.history || [root.modelData.path]).length - 1
-    canGoUp: root.modelData.path !== "/"
     onBackRequested: root.hostTabOps.navTabBack(root.index)
     onForwardRequested: root.hostTabOps.navTabForward(root.index)
-    onUpRequested: {
-      var p = root.modelData.path
-      var idx = p.lastIndexOf("/")
-      root.hostTabOps.navigateTabTo(root.index, idx > 0 ? p.substring(0, idx) : "/")
-    }
   }
 
   // Full breadcrumbs, same as in the active panel -- before only
@@ -46,6 +40,17 @@ Row {
     height: parent.height
     segments: root.hostCommandFacade ? root.hostCommandFacade.pathSegmentsFor(root.modelData.path) : []
     activePath: root.modelData.path
+  }
+
+  // Single click on a breadcrumb segment navigates this background tab to
+  // that folder (background panels are read-only: no edit-on-double-click).
+  MouseArea {
+    anchors.fill: bgBreadcrumbRow
+    cursorShape: Qt.PointingHandCursor
+    onClicked: function (mouse) {
+      var p = bgBreadcrumbRow.pathAt(mouse.x)
+      if (p && root.hostTabOps) root.hostTabOps.navigateTabTo(root.index, p)
+    }
   }
 
   // Magnifier slot. At rest it's empty (it only reserves the width of the collapsed

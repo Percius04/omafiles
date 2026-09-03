@@ -127,7 +127,7 @@ QString instanceSocketName() {
 // Normalizes the command-line argument to the "payload" that
 // core/OmafilesContent.open() understands: an absolute folder path, optionally
 // followed by "\n" and names to select (separated by \x1f). Rules:
-//   · empty            -> "" (open() restores the previous session).
+//  · empty            -> "" (open() starts a single tab on $HOME).
 //   · starts with "/"  -> forwarded AS IS. Covers both an absolute path
 //                         and a payload already built by dbus-filemanager1.py
 //                         ("/folder\nname") -- that is why it is not touched.
@@ -400,11 +400,20 @@ int runNormal(int argc, char *argv[]) {
 
 
   // First positional argument = path/URI/payload to open (empty = normal
-  // start, which restores the previous session ).
+  // start, which opens a single tab on $HOME -- no session restore).
+  // Flags: --new-window / -new-window (a second/Nth window for e.g. another
+  // Hyprland workspace) skip the single-instance delivery -- this process
+  // opens its own window instead of handing the invocation to the running
+  // primary. Everything else starting with '-' is ignored as a flag.
+  bool newWindow = false;
   QString payload;
   for (int i = 1; i < argc; ++i) {
     const QString a = QString::fromLocal8Bit(argv[i]);
-    if (a.startsWith(QLatin1String("--"))) continue;  // flags (there are none in normal mode)
+    if (a.startsWith(QLatin1Char('-'))) {
+      if (a == QLatin1String("--new-window") || a == QLatin1String("-new-window"))
+        newWindow = true;
+      continue;
+    }
     payload = normalizePayload(a);
     break;
   }
@@ -421,8 +430,9 @@ int runNormal(int argc, char *argv[]) {
   // Single instance: if there is already an Omafiles open, deliver it the payload
   // (it will navigate/select and bring itself to the front) and exit without
   // opening another window. If not, this invocation becomes the server instance.
+  // --new-window skips this entirely (see the flag parsing above).
   // Picker instances run independently as separate transient windows.
-  if (!isPicker && SingleInstance::deliverToRunning(payload)) return 0;
+  if (!isPicker && !newWindow && SingleInstance::deliverToRunning(payload)) return 0;
   startupTrace("single-instance check done (this is the primary instance)");
 
   // qs.Ui uses QtQuick.Controls (Button/TextField) -- Basic is the style that
@@ -440,8 +450,11 @@ int runNormal(int argc, char *argv[]) {
   startupTrace("resourceDir resolved + import paths added");
 
   SingleInstance instance;
-  instance.listen();  // if it fails (name taken by a race) it simply does not
-                      // receive summons; the window opens anyway.
+  // Only the FIRST instance owns the summon socket. --new-window instances
+  // skip it so the socket (and thus which window receives "open folder"
+  // requests) stays with the primary; if listen() fails (name taken by a
+  // race) it simply does not receive summons; the window opens anyway.
+  if (!newWindow) instance.listen();
   engine.rootContext()->setContextProperty("SingleInstance", &instance);
   engine.rootContext()->setContextProperty("omafilesInitialPayload", payload);
 
@@ -467,12 +480,12 @@ int runNormal(int argc, char *argv[]) {
     // One-shot: the first real frameSwapped is the first moment actual
     // pixels reached the compositor -- what the user perceives as "the
     // window appeared", as opposed to `visible: true` merely being set.
-    auto *conn = new QMetaObject::Connection();
-    *conn = QObject::connect(win, &QQuickWindow::frameSwapped, win, [conn]() {
+    // Qt::SingleShotConnection (not a manual QMetaObject::Connection that
+    // disconnects+ deletes itself inside the slot): cleanly detaches after
+    // the first emission instead of freeing memory mid-dispatch (UAF).
+    QObject::connect(win, &QQuickWindow::frameSwapped, win, []() {
       startupTrace("first frame swapped (window actually visible on screen)");
-      QObject::disconnect(*conn);
-      delete conn;
-    });
+    }, Qt::SingleShotConnection);
   }
 
   startupTrace("entering app.exec()");

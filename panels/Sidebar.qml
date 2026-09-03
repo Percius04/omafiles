@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 import "../shared/Utils.js" as Utils
@@ -38,63 +39,84 @@ Item {
   signal filesDropped(var drop, string destPath)
   signal dropHoverChanged(string path)
 
-  Column {
-    id: sidebar
-    width: parent.width
-    height: parent.height
-    spacing: 0 // Components already manage their own spacing
+  Flickable {
+    id: sidebarFlickable
+    anchors.fill: parent
+    clip: true
+    boundsBehavior: Flickable.StopAtBounds
+    contentHeight: sidebarColumn.implicitHeight
+    interactive: sidebarColumn.implicitHeight > height
 
-    SidebarBookmarks {
-      bookmarks: root.bookmarks
-      currentPath: root.currentPath
-      dropHoverPath: root.dropHoverPath
-      positionRelativeTo: root.positionRelativeTo
-      iconForBookmark: root.iconForBookmark
-      openContextMenu: root.openContextMenu
-      bookmarkActionsFor: root.bookmarkActionsFor
+    ScrollBar.vertical: ScrollBar {
+      policy: sidebarColumn.implicitHeight > sidebarFlickable.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+      width: Style.space(8)
+      anchors.left: parent.left
 
-      onBookmarkOpened: function(b) { root.bookmarkOpened(b) }
-      onDropHoverChanged: function(p) { root.dropHoverChanged(p) }
-      onFilesDropped: function(d, p) { root.filesDropped(d, p) }
+      contentItem: Rectangle {
+        implicitWidth: parent.width
+        implicitHeight: 26
+        radius: parent.width / 2
+        color: Util.alpha(Color.foreground, 0.28)
+      }
     }
 
-    SidebarRecent {
-      recentFiles: root.recentFiles
-      positionRelativeTo: root.positionRelativeTo
-      openContextMenu: root.openContextMenu
+    Column {
+      id: sidebarColumn
+      width: parent.width
+      spacing: 0 // Components already manage their own spacing
 
-      onRecentOpened: function(i) { root.recentOpened(i) }
-      onRecentLaunched: function(i) { root.recentLaunched(i) }
-      onRecentRemoveRequested: function(p) { root.recentRemoveRequested(p) }
-      onRecentClearRequested: function() { root.recentClearRequested() }
-    }
+      SidebarBookmarks {
+        bookmarks: root.bookmarks
+        currentPath: root.currentPath
+        dropHoverPath: root.dropHoverPath
+        positionRelativeTo: root.positionRelativeTo
+        iconForBookmark: root.iconForBookmark
+        openContextMenu: root.openContextMenu
+        bookmarkActionsFor: root.bookmarkActionsFor
 
-    SidebarMounts {
-      mounts: root.mounts
-      currentPath: root.currentPath
-      dropHoverPath: root.dropHoverPath
-      ejectingDevice: root.ejectingDevice
-      positionRelativeTo: root.positionRelativeTo
-      iconForMount: root.iconForMount
-      openContextMenu: root.openContextMenu
-      mountActionsFor: root.mountActionsFor
+        onBookmarkOpened: function(b) { root.bookmarkOpened(b) }
+        onDropHoverChanged: function(p) { root.dropHoverChanged(p) }
+        onFilesDropped: function(d, p) { root.filesDropped(d, p) }
+      }
 
-      onMountActivated: function(m) { root.mountActivated(m) }
-      onMountEjectRequested: function(m) { root.mountEjectRequested(m) }
-      onDropHoverChanged: function(p) { root.dropHoverChanged(p) }
-      onFilesDropped: function(d, p) { root.filesDropped(d, p) }
-    }
+      SidebarRecent {
+        recentFiles: root.recentFiles
+        positionRelativeTo: root.positionRelativeTo
+        openContextMenu: root.openContextMenu
 
-    SidebarNetwork {
-      networkMounts: root.networkMounts
-      currentPath: root.currentPath
-      positionRelativeTo: root.positionRelativeTo
-      iconForNetworkMount: root.iconForNetworkMount
-      openContextMenu: root.openContextMenu
-      networkMountActionsFor: root.networkMountActionsFor
+        onRecentOpened: function(i) { root.recentOpened(i) }
+        onRecentLaunched: function(i) { root.recentLaunched(i) }
+        onRecentRemoveRequested: function(p) { root.recentRemoveRequested(p) }
+        onRecentClearRequested: function() { root.recentClearRequested() }
+      }
 
-      onNetworkMountOpened: function(m) { root.networkMountOpened(m) }
-      onConnectRequested: function() { root.connectRequested() }
+      SidebarMounts {
+        mounts: root.mounts
+        currentPath: root.currentPath
+        dropHoverPath: root.dropHoverPath
+        ejectingDevice: root.ejectingDevice
+        positionRelativeTo: root.positionRelativeTo
+        iconForMount: root.iconForMount
+        openContextMenu: root.openContextMenu
+        mountActionsFor: root.mountActionsFor
+
+        onMountActivated: function(m) { root.mountActivated(m) }
+        onMountEjectRequested: function(m) { root.mountEjectRequested(m) }
+        onDropHoverChanged: function(p) { root.dropHoverChanged(p) }
+        onFilesDropped: function(d, p) { root.filesDropped(d, p) }
+      }
+
+      SidebarNetwork {
+        networkMounts: root.networkMounts
+        currentPath: root.currentPath
+        positionRelativeTo: root.positionRelativeTo
+        iconForNetworkMount: root.iconForNetworkMount
+        openContextMenu: root.openContextMenu
+        networkMountActionsFor: root.networkMountActionsFor
+
+        onNetworkMountOpened: function(m) { root.networkMountOpened(m) }
+        onConnectRequested: function() { root.connectRequested() }
+      }
     }
   }
 }

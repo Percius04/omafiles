@@ -21,11 +21,11 @@ import Omafiles.Backend as Backend
 // through Omafiles.Services.JsonStore, a thin adapter over the C++ backend
 // (QFile/QSaveFile/QJsonDocument). The parsing is in C++, the write is
 // atomic and there are no forks. The observable contract is the same: read() is still
-// async (loaded arrives on the next cycle), which is why loadSession()
-// can keep triggering refresh()/startDirWatch on its own.
+// async (loaded arrives on the next cycle). loadSession() was removed with
+// the always-single-"$HOME"-panel startup, so the session restore branch no
+// longer exists either.
 Item {
   property Item root: null
-  property Item navController: null
 
   property Item tabOps: null
 
@@ -49,19 +49,12 @@ Item {
     Backend.JsonStore.read(Paths.recentFile)
   }
 
-  // Called on first application startup without an explicit path argument.
-  // a path requested by the host -- see open(). Async load (JsonStore.read);
-  // refresh()/startDirWatch are triggered from the sessionFile handler
-  // as soon as it knows the real path, not here (avoids listing homeDir extra if there
-  // was a session).
-  function loadSession() {
-    Backend.JsonStore.read(Paths.sessionFile)
-  }
-
   // Only saves the path of each tab -- not history/preview/scroll,
   // that is "hot" session (it already survives close/reopen without leaving
   // session persistence across restarts.
   // restoring it after a real restart of the shell.
+  // Written for compatibility only -- startup never restores it (a plain
+  // launch always opens a single "$HOME" panel, see OmafilesContent.open()).
   function saveSession() {
     tabOps.saveActiveTab()
     var snapshot = TabsState.tabs.map(function (t) { return { path: t.path } })
@@ -107,19 +100,6 @@ Item {
       } else if (path === Paths.recentFile) {
         BookmarksState.recentLoaded = true
         BookmarksState.recentFiles = Array.isArray(parsed) ? parsed : []
-      } else if (path === Paths.sessionFile) {
-        var savedTabs = (parsed && Array.isArray(parsed.tabs))
-          ? parsed.tabs.filter(function (t) { return t && typeof t.path === "string" && t.path.charAt(0) === "/" })
-          : []
-        if (savedTabs.length > 0) {
-          TabsState.tabs = savedTabs.map(function (t) { return { path: t.path, history: [t.path], historyIndex: 0 } })
-          TabsState.activeTabIndex = Math.max(0, Math.min(parsed.activeTabIndex || 0, TabsState.tabs.length - 1))
-          NavState.currentPath = TabsState.tabs[TabsState.activeTabIndex].path
-          TabsState.navHistory = [NavState.currentPath]
-          TabsState.navHistoryIndex = 0
-        }
-        navController.refresh()
-        if (!ArchiveState.inArchive) navController.startDirWatch(NavState.currentPath)
       } else if (path === Paths.bulkRenameHistoryFile) {
         BookmarksState.bulkRenameHistoryLoaded = true
         BookmarksState.bulkRenameHistory = Array.isArray(parsed) ? parsed : []
