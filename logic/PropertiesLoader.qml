@@ -75,6 +75,18 @@ Item {
     PropertiesState.propertiesSizeLoading = false
   }
 
+  // Combined "Properties" dialog: opens the permission (chmod) editor AND
+  // the read-only property table together (they share one merged
+  // PropertiesDialog). Called in one action from both the context menu and
+  // the command palette, replacing the two separately-opened dialogs.
+  function showDetailsForSelection() {
+    if (ArchiveState.inArchive) return
+    var entries = SelectionState.selectedEntries()
+    if (entries.length === 0) return
+    startChmod(entries)
+    showPropertiesForSelection()
+  }
+
   function showProperties(entry) {
     if (!entry) return
     PropertiesState.propertiesRequestId += 1

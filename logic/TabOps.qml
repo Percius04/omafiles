@@ -30,7 +30,7 @@ Item {
     if (path === tab.path) return
     var h = (tab.history || [tab.path]).slice(0, (tab.historyIndex !== undefined ? tab.historyIndex : 0) + 1)
     h.push(path)
-    next[index] = { path: path, history: h, historyIndex: h.length - 1 }
+    next[index] = Object.assign({}, tab, { path: path, history: h, historyIndex: h.length - 1 })
     TabsState.tabs = next
   }
 
@@ -46,7 +46,7 @@ Item {
     if (hIdx <= 0) return
     var hist = tab.history || [tab.path]
     var next = TabsState.tabs.slice()
-    next[index] = { path: hist[hIdx - 1], history: hist, historyIndex: hIdx - 1 }
+    next[index] = Object.assign({}, tab, { path: hist[hIdx - 1], history: hist, historyIndex: hIdx - 1 })
     TabsState.tabs = next
   }
 
@@ -58,7 +58,7 @@ Item {
     var hIdx = tab.historyIndex !== undefined ? tab.historyIndex : 0
     if (hIdx >= hist.length - 1) return
     var next = TabsState.tabs.slice()
-    next[index] = { path: hist[hIdx + 1], history: hist, historyIndex: hIdx + 1 }
+    next[index] = Object.assign({}, tab, { path: hist[hIdx + 1], history: hist, historyIndex: hIdx + 1 })
     TabsState.tabs = next
   }
 

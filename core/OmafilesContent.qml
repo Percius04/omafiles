@@ -65,7 +65,6 @@ Item {
 
     if (targetPath) NavState.pendingSelectNames = selectNames
 
-    var restoringSession = false
     if (!root.loaded) {
       if (targetPath) {
         NavState.currentPath = targetPath
@@ -74,8 +73,13 @@ Item {
         TabsState.navHistoryIndex = 0
         registry.navController.refresh()
       } else {
-        restoringSession = true
-        registry.persistence.loadSession()
+        // Single panel, always: a plain launch opens one tab on $HOME
+        // instead of restoring the previous session's tabs.
+        NavState.currentPath = Paths.homeDir
+        TabsState.tabs = [{ path: Paths.homeDir, history: [Paths.homeDir], historyIndex: 0 }]
+        TabsState.navHistory = [Paths.homeDir]
+        TabsState.navHistoryIndex = 0
+        registry.navController.refresh()
       }
     } else if (targetPath) {
       registry.tabOps.newTab()
@@ -90,7 +94,7 @@ Item {
     if (!ViewState.loaded) registry.persistence.loadUiPrefs()
     registry.mountOps.refreshMounts()
     registry.mountOps.refreshNetworkMounts()
-    if (!restoringSession && !ArchiveState.inArchive) registry.navController.startDirWatch(NavState.currentPath)
+    if (!ArchiveState.inArchive) registry.navController.startDirWatch(NavState.currentPath)
   }
 
   function cancelPicker() {

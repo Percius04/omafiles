@@ -58,6 +58,28 @@ Item {
     function onMountsChanged() { mountOps.refreshNetworkMounts() }
   }
 
+  // Auto-mount the most recent network profile on first startup.
+  // Triggered once when BookmarksState.networkProfilesLoaded flips true.
+  Connections {
+    target: BookmarksState
+    enabled: root.opened
+    property bool _autoConnectDone: false
+    function onNetworkProfilesLoadedChanged() {
+      if (_autoConnectDone || !BookmarksState.networkProfilesLoaded) return
+      _autoConnectDone = true
+      var profiles = BookmarksState.networkProfiles
+      if (profiles.length === 0) return
+      var uri = profiles[0]
+      // Check if it's already mounted (GVfs FUSE path exists)
+      var mounts = Backend.NetworkMounts.list()
+      var already = mounts.some(function (m) { return m.uri === uri })
+      if (!already) {
+        DialogsState.connectServerUri = uri
+        mountOps.commitConnectToServer()
+      }
+    }
+  }
+
   Connections {
     target: Backend.TerminalResolver
     function onError(message) {

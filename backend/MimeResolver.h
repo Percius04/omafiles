@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <qqmlregistration.h>
 
@@ -19,4 +20,8 @@ public:
 
   // Launches an application via its desktop ID
   Q_INVOKABLE void launchApp(const QString &desktopId, const QString &path);
+
+private:
+  // Launches a Terminal=true app inside the user's terminal emulator.
+  void startInTerminal(const QString &program, const QStringList &args);
 };

@@ -103,25 +103,10 @@ Item {
     onFocusReturnRequested: list.forceActiveFocus()
   }
 
-  // ---------- Permissions (chmod) ----------
-  ChmodPanel {
+  // ---------- Properties + Permissions (merged) ----------
+  PropertiesDialog {
     anchors.fill: parent
-    open: ChmodState.chmodOpen
-    names: ChmodState.chmodNames
-    mixed: ChmodState.chmodMixed
-    mode: ChmodState.chmodMode
-    hasDir: ChmodState.chmodHasDir
-    recursive: ChmodState.chmodRecursive
-    onCloseRequested: ChmodState.chmodOpen = false
-    onBitToggled: function (ownerIdx, bit) { if (controllers && controllers.actionEngine) controllers.actionEngine.toggleChmodBit(ownerIdx, bit) }
-    onRecursiveToggled: ChmodState.chmodRecursive = !ChmodState.chmodRecursive
-    onApplyRequested: function (mode) { if (controllers && controllers.actionEngine) controllers.actionEngine.commitChmod(mode) }
-  }
-
-  // ---------- Properties ----------
-  PropertiesPanel {
-    anchors.fill: parent
-    open: PropertiesState.propertiesOpen
+    open: ChmodState.chmodOpen || PropertiesState.propertiesOpen
     multi: PropertiesState.propertiesMulti
     count: PropertiesState.propertiesCount
     entry: PropertiesState.propertiesEntry
@@ -130,7 +115,18 @@ Item {
     perms: PropertiesState.propertiesPerms
     owner: PropertiesState.propertiesOwner
     mtime: PropertiesState.propertiesMtime
-    onCloseRequested: PropertiesState.propertiesOpen = false
+    names: ChmodState.chmodNames
+    mixed: ChmodState.chmodMixed
+    mode: ChmodState.chmodMode
+    hasDir: ChmodState.chmodHasDir
+    recursive: ChmodState.chmodRecursive
+    onCloseRequested: {
+      PropertiesState.propertiesOpen = false
+      ChmodState.chmodOpen = false
+    }
+    onBitToggled: function (ownerIdx, bit) { if (controllers && controllers.actionEngine) controllers.actionEngine.toggleChmodBit(ownerIdx, bit) }
+    onRecursiveToggled: ChmodState.chmodRecursive = !ChmodState.chmodRecursive
+    onApplyRequested: function (mode) { if (controllers && controllers.actionEngine) controllers.actionEngine.commitChmod(mode) }
   }
 
   // ---------- Keyboard shortcuts help ----------
@@ -310,7 +306,7 @@ Item {
     entry: PreviewState.openWithEntry
     apps: PreviewState.openWithApps
     onCloseRequested: PreviewState.openWithOpen = false
-    onAppSelected: function (appId) { if (controllers && controllers.commandFacade) controllers.commandFacade.launchWith(appId) }
+    onAppSelected: function (appId) { if (commandFacade) commandFacade.launchWith(appId) }
   }
 
   // ---------- Context menu ----------

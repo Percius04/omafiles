@@ -1,350 +1,217 @@
 # Omafiles
 
-A keyboard-first **multi-panel** file manager for [Omarchy](https://omarchy.org), built as a **Qt6 standalone application** (`v1.2.0`). It is not a wrapper around Nautilus/Dolphin/Thunar, and not a layer-shell popup either — it's a real, tileable window that opens and behaves like any other app on your desktop, using Omarchy's own design system (`qs.Commons`/`qs.Ui`) end to end: same typography, same borders, same hover/selection chrome, same Nerd Font icons as the rest of the shell.
+A high-performance, native **Qt6 / QML** file manager for **Arch Linux (Hyprland/Wayland)**.
+
+Omafiles is a fast, keyboard-first file manager with modern expectations: tabs, split
+preview, list & grid views, network mounts, archives, a file picker portal, and a
+Nautilus-style sidebar — all rendered with Qt Quick and a lightweight C++ backend.
+
+This fork is maintained by **Flaxenox** and adds several reliability, usability, and
+stability fixes on top of the upstream project (see [Fixes included](#-fixes-included)).
+
+---
+
+## ✨ Features
+
+- **Tabs & split preview** — open folders in tabs and preview files side-by-side.
+- **Dual view modes** — dense *list* view and thumbnailed *grid* view, with a crossfade animation.
+- **Sidebar** — bookmarks, recent files, drives/mounts (USB, partitions), and network locations.
+- **Network mounts** — SFTP, FTP, WebDAV, SMB via GVfs, with a Nautilus-like connect flow.
+- **Native properties** — real `stat`/`du` sizing and a disk-usage bar (no shelling out).
+- **Archives** — compress to `.zip`, extract `.zip`/`.7z`/`.rar` (opt-in backends).
+- **Duplicate finder** — locate duplicate files by content.
+- **Global search** — fast filename search via `tracker3` / `plocate` when installed.
+- **File Chooser portal** — integrates as `org.freedesktop.impl.portal.FileChooser` on Hyprland.
+- **Mouse side-button navigation** — back/forward history (Nautilus/Finder style).
+
+---
+
+## 🔧 Fixes included
+
+All changes in this fork are tracked as commits on `master` (see the git history).
+
+### 1. Startup crash — use-after-free (fixed)
+- **`main.cpp`**: replaced the manual `QMetaObject::Connection` + `disconnect`/`delete` pattern
+  (used to log the first rendered frame) with `Qt::SingleShotConnection`, which detaches cleanly
+  after the first emission instead of freeing memory mid-dispatch. Fixes the crash on first launch.
+
+### 2. Play it safe by default — always start on `$HOME`
+- **`core/OmafilesContent.qml`**: a plain launch now opens a **single tab on `$HOME`** instead of
+  restoring the previous session's tabs.
+- **`logic/Persistence.qml`** / **`state/TabsState.qml`**: removed the now-unused `loadSession()`
+  restore branch (session file is still written for compatibility, just never restored on startup).
+
+### 3. "Open With" actually launches the app
+- **`core/DialogLayer.qml`**: `OpenWithPanel.onAppSelected` previously checked
+  `controllers.commandFacade`, which does not exist on `ControllerRegistry` — the guard was always
+  false and nothing launched. Now it calls `commandFacade.launchWith(appId)` directly.
+
+### 3b. Terminal-only apps (nvim, vim, …) launch inside a terminal
+- **`backend/MimeResolver.cpp`**: `launchApp` now reads `Terminal=true` from a `.desktop` file and,
+  when set, runs the command inside the user's terminal emulator (`$TERMINAL` → `xdg-terminal-exec`,
+  kitty, foot, alacritty, wezterm, ghostty, gnome-terminal, konsole, xfce4-terminal, xterm) instead of
+  launching it detached with no TTY — where TUI apps such as Neovim silently refuse to start.
+
+### 4. `--new-window` flag
+- **`main.cpp`**: added `--new-window` / `-new-window` so you can open a second/Nth window (e.g. on
+  another Hyprland workspace). Such instances skip the single-instance hand-off and skip owning the
+  summon socket, keeping "open folder" requests with the primary window.
+
+### 5. XDG `[Removed Associations]` support — no duplicate "Open With" entries
+- **`backend/MimeResolver.cpp`**: added `parseRemovedAssociations()` and applied it in
+  `getAppsForFile()`, so desktop IDs listed under `[Removed Associations]` in `mimeapps.list`
+  are correctly filtered out. Fixes duplicate entries (e.g. two "Zathura" rows).
+
+### 6. Robust app launch
+- **`backend/MimeResolver.cpp`**: `launchApp` now checks the `QProcess::startDetached` return value
+  and logs a warning if the app could not be started.
+
+### 7. Network mount fixes (SFTP/FTP/WebDAV/SMB)
+- **`backend/NetworkMounts.cpp`**: each mount now surfaces a real `uri` (`scheme://host/share`) so
+  unmounting works — unmounting by the local gvfs FUSE path failed with "Containing mount doesn't
+  exist". Also added a Nautilus-like `homePath` (the mount's default location).
+- **`backend/NetworkResolver.cpp` / `.h`**: `mountFinished` now reports a `homePath` (remote `$HOME`
+  for SFTP, the reachable root for others), mirroring what a fresh connect opens.
+- **`logic/MountActions.qml`**: disconnect uses `mount.uri`; a successful connect navigates to the
+  mount's `homePath`.
+- **`core/MainLayout.qml`**: opening a network mount from the sidebar goes to `homePath`.
+
+### 8. Mouse back/forward buttons
+- **`core/MainLayout.qml`**: added a `MouseArea` (full-window, `z=10000`) that accepts only
+  `Qt.BackButton`/`Qt.ForwardButton` and drives the history — disabled while a blocking overlay
+  (context menu / dialog / inline edit) is open.
+
+### 9. Scrollable that can't go off-screen (list & sidebar)
+- **`panels/Sidebar.qml`**: the left sidebar now scrolls inside a `Flickable` when its sections
+  overflow a short/tiled window, with an auto-showing `ScrollBar.vertical`.
+- **`panels/ActiveFileList.qml`**: the right file pane gets an auto-showing `ScrollBar.vertical`
+  (right-aligned, appears only when rows actually overflow).
+- **`dialogs/ContextMenuPanel.qml`**: the right-click context menu is height-capped so it never goes
+  off-screen at 1/4 or 1/2 splits, scrolls via a `Flickable` + scrollbar when needed, and the
+  backdrop consumes wheel events so scrolling the menu doesn't also scroll the file list behind it.
+
+### 10. Misc reliability
+- **`core/MainLayout.qml`**: the wheel-handling `MouseArea` now uses `acceptedButtons: Qt.NoButton`
+  and a higher `z` so it reliably receives wheel events without swallowing clicks/drags.
+- **`core/ControllerRegistry.qml`**: dropped a stale `navController` injection in the persistence
+  controller.
+
+### 11. Background-pane navigation no longer drops saved tab state
+- **`logic/TabOps.qml`**: `navigateTabTo`, `navTabBack` and `navTabForward` rebuilt the tab object as a
+  fresh literal, silently discarding every other saved field (scroll position, open search, preview,
+  archive state). They now `Object.assign({}, tab, {...})` — merging onto what `saveActiveTab()`
+  stored, so back/forward/up on a background panel keeps its scroll, search, preview and archive
+  context.
 
-![Omafiles screenshot](preview.png)
+### 12. Preview panel no longer ghosts a stale file's text into a directory listing
+- **`logic/PreviewLoader.qml`**: `loadPreview()` bailed immediately for a directory without clearing
+  the previous file's `previewIsText` / `previewText` / `previewHighlighted`, so a directory's brief
+  preview could keep painting the old file's text behind it. It now resets that state.
 
-## Why
+> Removed debug/instrumentation hooks are also cleaned out, so there are no leftover
+> `ReferenceError`-throwing dev hooks in the deployed panels.
 
-Omarchy is opinionated by design — one good default per decision instead of a wall of settings. Omafiles follows the same spirit (and the DHH / 37signals bias toward sharp, un-configurable defaults): no view-mode dropdowns, no icon-size sliders, no settings panel. Sorting is a key that cycles (`s`/`S`), not a combo box. Everything has a keyboard path first; the mouse works too, but it's not the point.
+---
 
-Two ideas shape the whole app:
+## 🛠 Dependencies
 
-- **Keyboard first.** Vim-style motion (`j`/`k`, `gg`/`G`, `h`/`l`), a command palette for every action, and a native path bar with completion mean you rarely reach for the mouse.
-- **A multi-panel workspace.** Omafiles is not a dual-pane manager with two fixed sides. You open as many **persistent panels** as you want, side by side. Each panel keeps its **own path, scroll position, selection, preview, and back/forward history**, independently. Background panels stay fully alive — switching between them is instant and lossless, so you can keep several working contexts open at once and glance between them like windows in a tiling WM.
+**Required:**
 
-Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafiles.Backend`) that does the heavy lifting natively — directory listing, file operations, search, thumbnails, previews, mount watching — with no shell-out where a native call will do.
+| Package | Purpose |
+|---|---|
+| `qt6-base` | Qt6 Core/Gui/Qml/Quick/DBus/Network |
+| `qt6-declarative` | Quick/QuickControls2 + QML tooling |
+| `qt6-webengine` | Provides `Qt6::Pdf` |
+| `glib2` | GIO (GVfs mounting, network) |
+| `zip` `unzip` | Compress/Extract (`.zip`, no fallback) |
+| `python-gobject` | D-Bus integration scripts |
+| `cmake` `ninja` | Build system (build-time) |
 
-## Features
+**Optional** (each degrades gracefully without it):
 
-### Navigation
+| Package | Purpose |
+|---|---|
+| `tracker3` / `plocate` | faster global filename search |
+| `ffmpegthumbnailer` | video thumbnails |
+| `gvfs` / `gvfs-smb` | network locations (SFTP/FTP/WebDAV/SMB) |
+| `p7zip` / `unrar` | extract `.7z` / `.rar` |
+| `xdg-mime` | register as default file manager / resolve "open with default" |
 
-- Vim-style keyboard navigation (`j`/`k`, `gg`/`G`, `h`/`l`) plus arrow keys; `Enter`/`l` opens, `h`/`Backspace` goes up.
-- Back/forward navigation history (`Alt+←`/`Alt+→`), tracked **per panel**.
-- Breadcrumb path bar; click any segment to jump there, or click the empty area to edit the path by hand.
-- Natural-order aware throughout: `file2.txt` sorts before `file10.txt`.
+---
 
-### Grid & List view modes (`Ctrl+G`)
+## 🚀 Installation
 
-- Seamlessly switch between the classic list view and a centered **grid/icon view** (`Ctrl+G`, command palette, or header button) with a smooth 160ms crossfade animation.
-- Dynamic cell zooming: hold `Ctrl` and scroll the mouse wheel to scale grid cells to your preferred size. Thumbnails and icons scale crisply, reusing the high-resolution cache.
-- Full 2D keyboard navigation (`h`/`l`/`←`/`→` in grid mode; `j`/`k`/`↓`/`↑` jump full rows) and 2D rectangular marquee (lasso) selection.
-- View mode preference is persisted globally across application restarts (`~/.local/state/omafiles/ui-prefs.json`).
-
-### Multiple persistent panels
-
-- Open as many panels as you like, shown side by side and separated by a hairline divider — not a one-at-a-time switcher.
-- Every panel is a live, independent workspace: its **path, scroll, selection, preview, and history are preserved** and never reset when you switch away.
-- Background panels stay rendered and up to date; the active panel is simply whichever one has the mouse over it — that's where keyboard shortcuts, selection, and the context menu apply.
-- Switching is instant and pixel-exact: a panel comes back exactly where you left it, down to the scroll offset.
-- New panels: `Ctrl+T` or `Ctrl+\`. Close the active panel: `Ctrl+W` (or `Escape` when nothing else is open). Cycle: `Ctrl+Tab`.
-
-### Global indexed search
-
-- Search files across the whole system by name (`/` or `Ctrl+F`), backed by the system index — Tracker (`tracker3`) → `plocate`/`locate`, falling back to a native recursive walk from the current folder when no index is installed.
-- Results are ranked by relevance (exact → prefix → substring → path-only), and opening one **reveals** it: a folder is entered, a file jumps to its folder with it selected — like Spotlight, not a blind launch.
-- Search is **per panel**: it stays open in the panel where you started it and doesn't leak into the others.
-
-### Content search (`content:`)
-
-- Search *inside* files, not just by name — type `content:` followed by your text in the search bar (e.g. `content:TODO`, `content:"struct Foo"`).
-- Powered by a native multithreaded C++ search worker (`SearchWorker`), streaming results asynchronously with zero shell-out overhead, binary file auto-detection, line matching, and snippet extraction.
-- Each hit shows the file icon, name, parent folder, and the matched **line number + snippet**; opening a result reveals the file with it selected.
-
-### Preview (Quick Look with `Space`)
-
-- Press `Space` to toggle a quick preview of the selected item — the same "peek without opening" flow you'd expect from Quick Look.
-- Handles images, inline video/audio **playback** (Qt Multimedia, play/pause, auto-stops when you move to another item) with a video thumbnail fallback, native C++ syntax highlighting (C++, Python, QML, JSON, Shell), first-page PDF rendering (`QQuickPdfDocument`/`pdftoppm`), and native C++ audio/video metadata extraction (`MediaInfo`: duration, bitrate, sample rate, channels, codec).
-- Preview state is tracked per panel.
-
-### File operations
-
-- Rename, new folder, new file, make link, delete (to trash), copy / cut / paste, drag-and-drop, compress, extract, and bulk rename.
-- Nothing silently clobbers an existing name: copy/cut/paste/drag show a real overwrite / skip / cancel dialog; extract/compress/bulk-rename show their own equivalent; rename asks to confirm an overwrite; new folder / new file / make link refuse with a clear error instead of failing quietly.
-- Copy/move show a "still working" indicator with **Cancel** and a real percentage + progress bar (estimated from source size vs. bytes landed — `cp`/`mv` don't report progress themselves), and a cancel leaves no half-written file or tree behind. A second copy/move/compress/extract issued while one is already running is **queued**, not rejected — it's shown as a dimmed "Pending" row (with its own Cancel) above the active one, and starts automatically once its turn comes.
-- Compress to `.zip`, `.tar.gz`, or `.7z`; extract `.zip`/`.7z`/`.rar`/the `.tar` family, including multi-volume archives — both directions show a live progress bar.
-- Copy/cut sync with the system clipboard (`wl-copy`, `text/uri-list`): paste files copied in Omafiles into another app, or files copied elsewhere into Omafiles (`Ctrl+V` falls back to the system clipboard when nothing's copied inside the app). "Copy path" puts the plain-text path(s) on the clipboard instead.
-- Rubber-band selection (drag over empty space; `Ctrl` adds to the selection), range selection with `Shift`+`↑`/`↓`, and drag-and-drop both out to and in from other apps.
-
-### Undo / Redo
-
-- `Ctrl+Z` undo, `Ctrl+Shift+Z` or `Ctrl+Y` redo, with a LIFO stack (up to 20 steps).
-- Covers rename, new folder, new file, make link, delete, move, bulk rename, and chmod (chmod undo restores each item's own previous mode).
-
-### Trash
-
-- Aggregates **every** active trash location, not just the one under your home — anything deleted from another mounted drive gets its own trash there, and Omafiles shows them all together in one place.
-- Each item shows its original location and deletion time (read from `.trashinfo`); restore puts it back where it came from.
-
-### Reactive drives (UDisks2)
-
-- A mounted-drives sidebar that reacts live to UDisks2 events — mount / eject, distinguishing internal disks from removable/USB by icon, no polling lag.
-
-### ISO images
-
-- Mount `.iso` files (open one, or "Mount ISO" from the context menu / palette) as a real loop-device mount — an installer or any file inside runs/copies exactly as it would from a real disc. It appears in the drives sidebar with its own icon and ejects like any removable drive.
-
-### Network locations (GVfs)
-
-- SFTP / SMB / WebDAV / FTP via GVfs — "Connect…" from the sidebar or command palette; active connections are listed and browsable like any local folder.
-- Uses already-cached credentials when available (SSH key, saved keyring entry); otherwise an in-app "Authentication Required" prompt asks for the username/password, with a session-only "remember" option.
-- Previously used server URIs are saved as one-click profiles (URI only — never a password) for reconnecting later.
-- A reactive watcher picks up mounts/unmounts made from *other* apps (e.g. mounting a share in Nautilus) without polling — the same live behavior local drives already had via UDisks2.
-
-### Archives
-
-- Browse inside a zip / 7z / rar / tar-family archive without extracting it; opening a file inside extracts just that one file to a temp cache and opens it with your default app. Read-only view.
-
-### Notifications
-
-- Real desktop notifications (`org.freedesktop.Notifications` over D-Bus, not `notify-send`) for background events — action failures, finished operations, and the like.
-- `Alt+N` opens a recent-notifications panel (session-only history, cleared on restart) in case you missed one.
-
-### Default file manager (`org.freedesktop.FileManager1`)
-
-- Registers itself as the system's default file manager on first launch — both for opening directories (`inode/directory` via `xdg-mime`) and for "Show in file manager" (the `org.freedesktop.FileManager1` D-Bus interface). See [System integration](#system-integration).
-
-### Thumbnails
-
-- Image and video thumbnails (video via `ffmpegthumbnailer`), cached on disk keyed by path + mtime.
-
-### Bulk rename
-
-- Rename a multi-selection with `{name}` / `{ext}` / `{n}` (or `{n:3}` to zero-pad) patterns, plus an optional regex Find/Replace applied to the name first; recent patterns are saved as one-click chips; a live preview shows every resulting name before confirming.
-
-### Permissions (chmod)
-
-- chmod on a multi-selection, with an "Apply to subfolders" toggle for `chmod -R`; handles huge selections natively without hitting `ARG_MAX`.
-
-### Duplicate file finder
-
-- Find and clean up redundant copies of files with a native, two-stage *fdupes*-style content hashing engine (`DuplicateFinder`).
-- Groups files first by exact byte size, then filters candidates with a fast 64 KB SHA-256 pre-hash before performing full SHA-256 validation on survivors — keeping large directory scans fast.
-- Runs entirely in the background without blocking the UI and supports instant cancellation.
-- Modal results dialog shows groups ordered with the oldest file first, featuring a one-click **"Select all but first per group"** action to keep originals and send duplicates to the system trash (with full `Ctrl+Z` Undo restoration).
-- Launch from the command palette (`:`) or by right-clicking any folder ("Find duplicates here...").
-
-### Git status indicators
-
-- Background Git repository detection and status resolution (`git status --porcelain=v1 -z`) via asynchronous workers.
-- Displays color-coded badges on modified (`M`, amber), added (`A`, green), deleted (`D`, red), conflicted (`U`, red), and untracked (`?`, muted) files across both List and Grid views.
-- Aggregated status on folders: folder badges reflect the highest-priority status among their contained files so you can spot modified subtrees at a glance.
-
-### Properties & disk usage
-
-- A read-only Properties panel powered by native C++ `statInfo()` (lstat/owner/permissions) and asynchronous directory size calculation (`requestDirSize()`) — completely eliminating shell `stat`/`du` subprocess overhead.
-- Mounted drives in the sidebar display a live visual **disk-usage capacity bar** based on native `QStorageInfo` metrics.
-
-### Custom keybindings (`keybindings.toml`)
-
-- Remap any non-fixed shortcut to a different key — no code changes, useful for Colemak/Dvorak or just personal taste. See [Custom keybindings](#custom-keybindings).
-
-### Custom actions (`actions.toml`)
-
-- Your own commands, surfaced in both the command palette and the item context menu — the escape hatch for anything the manager doesn't ship (open in your editor, optimize an image, upload, run a script). See [Custom actions](#custom-actions).
-
-### Command palette
-
-- `:` or `Ctrl+P` opens a fuzzy-searchable palette listing **every** action — navigation, file ops, sorting, tabs, bookmarks, and your custom actions — so nothing is keyboard-only-if-you-remember-the-shortcut.
-
-### Path autocomplete (`Ctrl+L`)
-
-- The address bar completes paths **natively** (C++ `QDir`, no `ls`/`compgen` shell-out): live suggestions as you type, `Tab` to complete the current segment and descend, `↑`/`↓` to walk the suggestions, `Enter` to go. Resolves `~`, absolute paths, and paths relative to the current folder, with smart-case matching.
-
-### Hyprland / Wayland integration
-
-- A real tiled Wayland window (a Qt `ApplicationWindow`), not a modal overlay or layer-shell popup — it tiles alongside your terminal and editor like any other app.
-- A single instance is enforced: a second `omafiles [path]` navigates the running window (raising it) instead of opening a new one.
-- The active panel's folder refreshes live (via a native `QFileSystemWatcher`) instead of only on `F5`; drives (UDisks2) and network locations (GVfs) both update reactively too, no polling.
-- Every icon is a verified Nerd Font glyph (checked against the installed font's cmap) — no emoji. Broken symlinks are flagged clearly (distinct icon, red name, "Broken link").
-- Basic screen-reader support (`Accessible.role`/`Accessible.name`) on the file list, sidebar, nav buttons, text inputs, and dialog buttons.
-
-## Keyboard shortcuts
-
-These are the **defaults**. Every one of them (except the five fixed shortcuts below) can be remapped to any key via `~/.config/omafiles/keybindings.toml` — see [Custom keybindings](#custom-keybindings). The table below, the in-app reference (`?`), and the actual dispatch in `logic/KeyboardShortcuts.qml` all read from one source of truth (`state/KeyboardDefaults.qml`), so they can't drift out of sync; the in-app `?` overlay always reflects your *effective* bindings, defaults or not.
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` / `↓` / `↑` | Move down / up |
-| `←` / `→` | Move left / right (in grid view) |
-| `Shift`+`↓` / `↑` | Extend selection down / up (arrow keys only — `Shift+j`/`Shift+k` are plain, unbound key presses) |
-| `h` / `Backspace` | Go up a directory |
-| `l` / `Enter` | Open (enter directory / launch file) |
-| `Alt+←` / `Alt+→` | Back / forward (per panel) |
-| `gg` / `Shift+G` | Jump to top / bottom |
-| `Space` | Toggle preview (Quick Look) |
-| `/` / `Ctrl+F` | Search files (name; prefix `content:` to search inside files) |
-| `:` / `Ctrl+P` | Command palette |
-| `Ctrl+A` | Select all |
-| `Ctrl+Shift+A` | Select none |
-| `Ctrl+I` | Invert selection |
-| `F2` | Rename |
-| `Delete` | Delete (to trash) |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` *(fixed)* | Copy / cut / paste |
-| `Ctrl+Z` *(fixed)* | Undo |
-| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
-| `s` / `Shift+S` | Cycle sort field / reverse order |
-| `Ctrl+L` | Edit path (with autocomplete: `Tab` completes, `↑`/`↓` pick, `Enter` goes) |
-| `Ctrl+Shift+N` | New folder |
-| `Ctrl+N` | New file |
-| `Ctrl+T` / `Ctrl+\` | New panel |
-| `Ctrl+W` | Close active panel |
-| `Ctrl+Tab` *(fixed)* | Next panel |
-| `Ctrl+H` | Toggle hidden files |
-| `Ctrl+G` | Toggle grid/list view |
-| `Shift+Enter` | Open a terminal here |
-| `F5` | Refresh |
-| `?` | Toggle keyboard shortcuts help |
-| `Alt+N` | Recent notifications |
-| `Escape` | Close search, then preview, then the active panel (with 2+ panels) |
-
-`gg` and `Escape` are handled structurally (a two-key chord and a context-sensitive close, respectively) rather than as single key bindings, so they're not in `keybindings.toml`. `SearchBar` and the command palette have their own independent `↑`/`↓` navigation, unaffected by `move_up`/`move_down` remapping — a known limitation, not a bug.
-
-## Custom keybindings
-
-Drop a TOML file at `~/.config/omafiles/keybindings.toml` to remap any non-fixed shortcut above to a different key — useful for alternative keyboard layouts (Colemak, Dvorak, …) where `hjkl`-style navigation lands on inconvenient physical keys.
-
-```toml
-[keybindings]
-move_down = "n"
-move_up   = "e"
-go_up     = "m"
-open      = "i"
-rename    = "r"
-refresh   = "ctrl+shift+r"
-```
-
-**Format:** a flat `[keybindings]` table, `action_name = "key"`. The key is a single character (`"n"`) or named key (`"return"`, `"space"`, `"backspace"`, `"delete"`, `"tab"`, `"f2"`, `"f5"`, an arrow name, or a symbol), optionally prefixed with `ctrl+`, `shift+`, and/or `alt+` (e.g. `"ctrl+shift+r"`). Action names match the left column of the table above (snake_case — see the in-app `?` overlay or `state/KeyboardDefaults.qml` for the full id list). Assigning a key **replaces all of that action's default keys** — e.g. overriding `move_down` frees up both `j` and `↓`, not just one of them.
-
-**Fixed shortcuts** (`Ctrl+C`/`Ctrl+X`/`Ctrl+V`/`Ctrl+Z`/`Ctrl+Tab`) can't be remapped — they follow OS/desktop clipboard-undo conventions and the near-universal "next tab" binding, and an entry for one of them in the config is ignored.
-
-**Conflicts and invalid entries never break startup.** If a key is already claimed by another (non-overridden) action, if an action name doesn't exist, or if a key spec can't be parsed, that one entry is ignored and its action keeps its default — you get a desktop notification listing what was skipped, everything else in the file still applies. A missing file (the common case) is silent and identical to having no overrides at all.
-
-Like `actions.toml`, this is hand-edited only — Omafiles never writes it — and is read once at startup (no file watcher); relaunch after editing it.
-
-## Custom actions
-
-Drop a TOML file at `~/.config/omafiles/actions.toml` to add your own commands. They appear in the command palette (`:` / `Ctrl+P`) and in the context menu of the selected file(s).
-
-Each `[[action]]` block:
-
-```toml
-[[action]]
-label   = "Open in your editor"
-command = "$EDITOR {path}"
-context = "file"          # optional: any (default) | file | dir
-
-[[action]]
-label   = "Optimize PNG"
-command = "optipng {path}"
-context = "file"
-
-[[action]]
-label   = "Open folder in terminal"
-command = "kitty --directory {path}"
-context = "dir"
-```
-
-**Keys:** `label` (shown text, required), `command` (shell command, required), `context` (when to show it: `any` / `file` / `dir`, matched against the current selection).
-
-**Placeholders** in `command`, each shell-quoted automatically so spaces and quotes are safe:
-
-| Placeholder | Expands to |
-| --- | --- |
-| `{path}` | absolute path of the first selected item |
-| `{name}` | its base name |
-| `{ext}` | its extension (without the dot) |
-| `{dir}` | the folder that contains it |
-| `{paths}` | all selected paths, space-separated |
-
-The command runs fire-and-forget with a `cd` into the item's folder. The file is **reloaded automatically** when you open the palette or a context menu — edit it and the changes take effect with no restart. There is no preferences window and no daemon; actions are never shown inside archives or the trash (paths there aren't real on disk).
-
-## Installation
-
-Omafiles is a **Qt6 standalone application** (no longer a Quickshell plugin), fully independent of Omarchy and of this repository. Clone it **anywhere**, build, and install to `~/.local` (no root):
+### Option A — Manual build & per-user install (recommended, no root)
 
 ```bash
-git clone https://github.com/Percius04/omafiles
+# 1. Install dependencies (Arch)
+sudo pacman -S --needed qt6-base qt6-declarative qt6-webengine glib2 zip unzip python-gobject cmake ninja
+
+# 2. Clone this fork
+git clone https://github.com/Flaxenox/omafiles.git
 cd omafiles
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja -C build
-cmake --install build      # binary, backend .so, QML/scripts/assets, icon
+
+# 3. Configure & build
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# 4. Install (to ~/.local — no root needed)
+cmake --install build
+
+# 5. Run
+omafiles
 ```
 
-`cmake --install` deploys everything to standard XDG locations, so **once installed you can delete the cloned repo and Omafiles keeps working**:
+The app registers itself as the default file manager and the FileChooser portal
+automatically on first launch (via `scripts/install-integrations.sh`) — no manual step.
 
-- binary → `~/.local/bin/omafiles`
-- backend module → `~/.local/lib/qt6/qml/Omafiles/Backend/`
-- QML, scripts and assets → `~/.local/share/omafiles/` (`$XDG_DATA_HOME`)
-- icon → `~/.local/share/icons/hicolor/scalable/apps/omafiles.svg`
+> Optional: to launch Omafiles with `SUPER + SHIFT + F` on Hyprland/Omarchy, add to
+> `~/.config/hypr/bindings.lua`:
+> ```lua
+> o.bind("SUPER + SHIFT + F", "OmaFiles", "omafiles --new-window")
+> ```
 
-Config lives in `~/.config/omafiles/` (`$XDG_CONFIG_HOME`), persistent state in `~/.local/state/omafiles/` (`$XDG_STATE_HOME`), and caches in `~/.cache/omafiles/` (`$XDG_CACHE_HOME`). Running from a source checkout still loads QML live from the tree, so development iteration is unchanged.
+### Option B — Rebuild after pulling changes
 
-Run it from the terminal (`omafiles`, or `omafiles <folder>`), or bind a key in `~/.config/hypr/bindings.lua`:
-
-```lua
-o.bind("SUPER + SHIFT + F", "Omafiles (file manager)", { launch = "omafiles" })
+```bash
+cd omafiles
+cmake --build build
+cmake --install build     # re-syncs ~/.local/bin/omafiles + backend .so + QML resources
 ```
 
-### Optional dependencies
+> **Note**: QML files are loaded live from the source tree at runtime (when present), so
+> `Sidebar.qml`, `ActiveFileList.qml`, `ContextMenuPanel.qml` and other QML fixes take effect on the
+> next launch even without a rebuild. C++ changes (e.g. `MimeResolver.cpp`, `main.cpp`,
+> `NetworkResolver.cpp`) require the rebuild above.
 
-Everything below is truly optional in the sense that OmaFiles starts and runs fine without it — but **python-gobject** is the one exception in this table worth calling out on its own: it's not required to *build* or *launch* the app, yet `install-integrations.sh` (which runs automatically, unprompted, on first launch) needs it to self-register as the default file manager / `org.freedesktop.FileManager1` / the FileChooser portal, and that self-registration fails silently without it. Everything else below degrades gracefully or falls back to a different mechanism.
+### Option C — Arch package (PKGBUILD)
 
-| Tool | Enables |
-| --- | --- |
-| **tracker3** / **plocate** | Faster global filename search (otherwise falls back to the built-in recursive search engine) |
-| **ffmpegthumbnailer** | Video thumbnails |
-| **gvfs** / **gvfs-smb** | Network locations (SFTP, FTP, WebDAV, SMB) |
-| **python-gobject (Gio)** | D-Bus desktop integration and FileChooser portal support — see the note above, this one silently no-ops rather than degrading gracefully |
-| **zip** / **unzip** | Compress / extract `.zip` — unlike the rows above, there's no fallback: without these, Compress and extracting a `.zip` fail with an error notification instead of degrading gracefully |
-| **p7zip** | Extract `.7z` archives, and create them via the "Compress to .7z" option (browsing archives, and `.tar`-family extract/compress including `.tar.gz`, don't need this) |
-| **unrar** | Extract `.rar` archives |
-| **xdg-mime** | Registering Omafiles as the default file manager on first launch, and resolving the default app for "open with default" double-clicks (both best-effort, guarded by `command -v`) |
+A `PKGBUILD` is provided at `packaging/arch/PKGBUILD`:
 
-**No longer required:** `xdg-terminal-exec`, `gio` (shell commands), `ffprobe`, `python-pygments`, `content-search.sh`, `empty-trash.sh`, and `inotifywait` have all been replaced by native C++ implementations.
+```bash
+cd packaging/arch
+makepkg -si
+```
 
-## System integration
+---
 
-Omafiles sets itself as the system's default file manager automatically on first launch — nothing to run by hand. It registers both handoff mechanisms Linux apps use:
+## 🧭 Usage
 
-- **Opening directories** (`xdg-open`, "Open folder" actions): a `~/.local/share/applications/io.github.percius04.omafiles.desktop` (a reverse-DNS ID, required for D-Bus activation) with `MimeType=inode/directory`, set via `xdg-mime default`.
-- **"Show in file manager"** (Firefox downloads, GTK/Qt "reveal in folder"): these go over the `org.freedesktop.FileManager1` D-Bus interface, not `.desktop`/`xdg-mime`, and Nautilus normally owns it. Omafiles ships a user-level service file for the same bus name (`~/.local/share/dbus-1/services/`), which takes priority over Nautilus's system one, backed by `scripts/dbus-filemanager1.py`.
-- **File Chooser Portal** (Save/Open dialogs from browser and GTK apps): these go over the `org.freedesktop.impl.portal.FileChooser` interface. Omafiles implements this portal backend via a user-level D-Bus service (`scripts/dbus-filechooser.py`), registering it as the preferred backend in `portals.conf` (and desktop-specific files like `hyprland-portals.conf`). Picker dialogs run with window class / `app_id` `omafiles-picker` so window managers can float and center them (e.g. in Hyprland: `windowrulev2 = float, class:^(omafiles-picker)$` and `windowrulev2 = size 900 600, class:^(omafiles-picker)$`).
+| Action | How |
+|---|---|
+| Navigate | click / arrow keys / mouse back–forward buttons |
+| New tab | `Ctrl+T` |
+| Preview | select a file, preview opens beside it |
+| Toggle view | list ↔ grid |
+| Compress | select items → right-click → Compress |
+| Connect to server | sidebar **Connect** (SFTP/FTP/WebDAV/SMB) |
+| Open with | right-click a file → **Open With** |
 
-This is idempotent and only runs once (tracked in `~/.local/state/omafiles/integrations-version`), so it won't fight you if you switch the default back by hand. To undo it: `xdg-mime default nautilus.desktop inode/directory`, then remove the two files above.
+Press `/` for the command palette to browse all shortcuts.
 
-Because it's a normal Wayland window, it tiles under Hyprland like any app, opens from other applications' "reveal in folder" actions, and enforces a single instance (a second launch navigates the existing window).
+---
 
-## Architecture
+## 📝 License
 
-Omafiles is a thin, declarative QML front-end over a shared high-performance native C++ backend:
-
-- **QML (Front-End)** — the UI, split into `core/` (composition root, controller registry, main layout), `panels/` (file lists and background panels), `dialogs/`, `shared/` (reusable visuals), `logic/` (controllers: navigation, selection, search, file ops, custom actions…), and `state/` (singletons holding hot state — current path, entries, selection, tabs…). No monolithic god objects: controllers are owned by a single `ControllerRegistry` and receive explicit dependencies.
-- **C++ (`Omafiles.Backend`)** — a shared QML plugin (`libomafiles-backend.so`) doing the heavy lifting natively without shell-out overhead:
-  - `DirectoryModel` — asynchronous directory scanning (`readdir`/`stat`) exposing natural-sorted entries and a 64-bit FNV-1a content signature with in-process `QFileSystemWatcher` live reload.
-  - `FileOperations` — copy, move, trash, restore, delete, and `emptyTrash` with byte-accurate progress, cancellation, and canonical multi-mount path normalization.
-  - `SearchWorker` — native multithreaded recursive name search and in-process content search (`content:`) with binary auto-detection, line matching, and snippet extraction.
-  - `DuplicateFinder` — native multithreaded duplicate file detection with two-stage SHA-256 content hashing and cancellation.
-  - `PreviewProvider` & `ThumbnailProvider` — asynchronous image/video thumbnail caching and native text previews.
-  - `SyntaxHighlighter` — in-process native syntax highlighting for C++, Python, QML, JSON, and Shell scripts.
-  - `MediaInfo` — in-process native audio and video metadata extraction (WAV, MP3 ID3v1/ID3v2, FLAC, MP4/MOV, OGG, MKV/WebM) with $< 0.1\text{ ms}$ latency.
-  - `LocalMounts` — native drive and partition enumeration with `QStorageInfo` capacity reporting and 4-tier sorting.
-  - `UDisksWatcher` & `GvfsWatcher` — reactive local-drive (UDisks2) and network-mount (GVfs, session D-Bus) monitoring, no polling for either; `NetworkMounts` lists the active GVfs mounts themselves.
-  - `PathCompleter` — native `QDir`-based path completion for `Ctrl+L`.
-  - `MimeResolver`, `TerminalResolver` & `NetworkResolver` — native association, terminal detection, and socket status checks without spawning shell subprocesses.
-  - Plus `ProcessRunner`, `ProcessWatcher`, `Detached`, `FolderCounter`, `JsonStore`, `Env`, and `Notifier`.
-
-## Testing & Quality Gates
-
-Omafiles enforces strict automated quality and performance gates before every release:
-
-- **Headless Self-Check Suite:** `omafiles --selfcheck` runs an automated in-memory test suite verifying **160/160** checks across filesystem operations, undo/redo stacks, D-Bus interfaces, keyboard dispatch, duplicate scanning, and UI instantiation.
-- **Performance Regression Gate:** `python3 bench/bench-gate.py --check-gate` validates cold startup, memory usage, large directory listings (up to 100k files), search latency, and I/O throughput against the canonical baseline (`bench/baseline.json`).
-
-## Status
-
-Stable Release (`v1.2.0`) — ready for production use.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT — see `LICENSE`. This is a fork of the upstream
+[Percius04/omafiles](https://github.com/Percius04/omafiles) project.

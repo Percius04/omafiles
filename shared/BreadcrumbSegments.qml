@@ -9,11 +9,41 @@ import qs.Commons
 // already resolves (root.currentPath or bgPanel.modelData.path). The active
 // panel still has, outside this component, the MouseArea and the
 // TextField to edit the path by hand -- the background one does not need them.
+//
+// No MouseArea inside on purpose: the caller owns the MouseArea (click to
+// navigate, double-click to edit in the active panel). This component only
+// exposes pathAt() so the caller can translate a local x into the segment
+// under the pointer.
 Row {
   id: root
 
   property var segments: []
   property string activePath: ""
+
+  // Map a local x (in this Row's coordinates) to the path of the segment
+  // containing it, or "" if it lands on a separator / empty space. Used by
+  // the caller's MouseArea to navigate on a single click.
+  function pathAt(x) {
+    var cursor = 0
+    for (var i = 0; i < root.segments.length; i++) {
+      var seg = root.segments[i]
+      var labelW = Math.ceil(menuFont.advanceWidth(seg.label))
+      var rowW = labelW + (seg.path !== root.activePath ? Math.ceil(menuFont.advanceWidth("\u203A")) : 0)
+      if (i > 0) rowW += root.spacing
+      if (x >= cursor && x < cursor + labelW) return seg.path
+      cursor += rowW
+    }
+    return ""
+  }
+
+  // Measures the labels so pathAt() does not depend on the delegates being
+  // laid out yet (same font the visible Texts use).
+  FontMetrics {
+    id: menuFont
+    font.pixelSize: Style.font.title
+    font.family: Style.font.family
+    font.weight: Font.Medium
+  }
 
   spacing: Style.spacing.xs
   clip: true
@@ -26,10 +56,6 @@ Row {
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.xs
 
-      // No own MouseArea on purpose -- josema did not want per-segment
-      // navigation (the back/up buttons are already there for that),
-      // just text that lets the click pass through to the MouseArea behind (edit
-      // the path by hand, only in the active panel).
       Text {
         text: modelData.label
         font.pixelSize: Style.font.title
@@ -41,7 +67,7 @@ Row {
 
       Text {
         visible: modelData.path !== root.activePath
-        text: "›"
+        text: "\u203A"
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         color: Color.menu.text

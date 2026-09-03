@@ -7,6 +7,12 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Pdf DBus Network Multimedia)
 
+# Silence Qt policy QTP0001 (default ':/qt/qml/' resource prefix for QML
+# modules). The Omafiles.Backend module is loaded as a plugin via the QML
+# import path, not from embedded resources, so the forward-compatible NEW
+# behaviour is chosen and the development warning goes away.
+qt_policy(SET QTP0001 NEW)
+
 qt_standard_project_setup()
 
 find_package(PkgConfig REQUIRED)

@@ -29,8 +29,12 @@ Q_SIGNALS:
   // Emitted when the server requires credentials (ephemeral interaction)
   void authRequested(const QString &message, const QString &defaultUser);
 
-  // Emitted when the mount completes (success or failure)
-  void mountFinished(bool success, const QString &errorMessage, const QString &localPath);
+  // Emitted when the mount completes (success or failure). On success
+  // `localPath` is the gvfs FUSE path of the mount ROOT and `homePath` is
+  // the FUSE path of the mount's DEFAULT location (remote home dir for
+  // sftp, reachable /-equivalent for the others -- what Nautilus opens);
+  // both are empty on failure.
+  void mountFinished(bool success, const QString &errorMessage, const QString &localPath, const QString &homePath);
 
   // Emitted when a disconnect completes
   void disconnectFinished(bool success, const QString &errorMessage);

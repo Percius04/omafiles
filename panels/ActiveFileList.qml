@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 import "../shared"
@@ -137,6 +138,11 @@ Item {
               anchors.bottom: parent.bottom
               anchors.left: parent.left
               width: PreviewState.previewOpen ? parent.width * 0.55 : parent.width
+              // Sits ABOVE the list (declared later in this parent) so
+              // its onWheel reliably receives wheel events; no buttons so
+              // it never swallows clicks/drags on the rows.
+              acceptedButtons: Qt.NoButton
+              z: 1
               property real wheelAccumulator: 0
               property real zoomAccumulator: 0
               onWheel: function (wheel) {
@@ -259,6 +265,19 @@ Item {
                 }
                 interactive: false
                 boundsBehavior: Flickable.StopAtBounds
+
+                ScrollBar.vertical: ScrollBar {
+                  policy: listView.contentHeight > listView.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                  width: Style.space(8)
+                  anchors.right: parent.right
+
+                  contentItem: Rectangle {
+                    implicitWidth: parent.width
+                    implicitHeight: Math.max(26, parent.height * (listView.height / listView.contentHeight))
+                    radius: parent.width / 2
+                    color: Util.alpha(Color.foreground, 0.28)
+                  }
+                }
 
                 footer: Item {
                   id: listFooter
