@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* **`--selfcheck` no longer empties the user's real trash.** The emptyTrash check runs against a seeded fixture root, and a final sweep removes only the suite's own fixture items (identified by origin path) from the real trash (#29).
+
 ## [1.2.0] - 2026-08-21
 
 ### Grid & List view modes

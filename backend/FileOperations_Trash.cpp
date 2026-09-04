@@ -16,9 +16,15 @@ void FileOperations::trash(const QString &path) {
 
 void FileOperations::emptyTrash() {
   auto cancelled = beginCancelToken(); // fresh, operation-local token (P1-4); job lambda is `this`-free (P0)
-  run(QStringLiteral("emptyTrash"), QString(), [cancelled](const auto &) -> Result {
+  // Selfcheck-only hook, same env-var-gated pattern as
+  // OMAFILES_SELFCHECK_SLOW_TRASH_MOUNT_MS: read HERE, not on the worker, so the
+  // caller can clear it the moment this returns and the queued job can never
+  // fall back to the real roots (#29). Always off in production.
+  const QString onlyRoot = qEnvironmentVariable("OMAFILES_SELFCHECK_TRASH_ROOT");
+  run(QStringLiteral("emptyTrash"), QString(), [cancelled, onlyRoot](const auto &) -> Result {
     QString err;
-    const QStringList roots = discoverTrashRoots();
+    const QStringList roots =
+        onlyRoot.isEmpty() ? discoverTrashRoots() : QStringList{onlyRoot};
     for (const QString &root : roots) {
       if (cancelled->load())
         return {false, QStringLiteral("cancelled")};

@@ -23,29 +23,54 @@ QtObject {
         // UI's behavior. Goal: that a regression like the one in
         // empty-trash.sh (which passed 70/70 green) makes the harness fail.
 
-        // ISOLATED empty-trash.sh: HOME points to a fake home inside the selfcheck's
-        // tmp and a fake findmnt (via PATH) prevents real mounts from being scanned
-        // -> it NEVER touches the user's real trash. It prepares a home
-        // trash with an item and confirms that the script empties it. A
-        // regression that doesn't discover the roots (like the trash-roots.sh one) would leave
-        // the item undeleted and would make this fail.
+        // Runs the REAL Backend.FileOperations.emptyTrash() against a FIXTURE
+        // trash root, confined there by OMAFILES_SELFCHECK_TRASH_ROOT (see
+        // FileOperations_Trash.cpp::emptyTrash) so the user's real trash is
+        // never touched (#29). The fixture is seeded with one item, so an
+        // emptyTrash that discovers no root or removes nothing fails here.
         sc.add("Backend.FileOperations emptyTrash empties trash roots (BUG-02)", function (done) {
-          function onFinished(op, path) {
-            if (op !== "emptyTrash") return
-            Backend.FileOperations.finished.disconnect(onFinished)
-            // trashInfo is async since the P0 trash-freeze fix (V1_1_P0_TRASH_FREEZE).
-            var reqId = Date.now()
-            function onInfo(id, info) {
-              if (id !== reqId) return
-              Backend.FileOperations.trashInfoReady.disconnect(onInfo)
-              var ok = (info.length === 0)
-              done(ok, ok ? "trash emptied cleanly: remaining=" + info.length : "items remained: " + info.length)
+          var root = sc.dir + "/trash"
+          var mk = "mkdir -p " + sc._q(root + "/files") + " " + sc._q(root + "/info")
+            + " && printf 'x\\n' > " + sc._q(root + "/files/x.txt")
+            + " && printf '%s\\n' '[Trash Info]' " + sc._q("Path=" + sc.note)
+            + " 'DeletionDate=2026-01-01T00:00:00' > " + sc._q(root + "/info/x.txt.trashinfo")
+          sc._sh(["bash", "-c", mk], function (r0) {
+            if (r0.exitCode !== 0) { done(false, "fixture trash setup failed: " + r0.stderr); return }
+
+            // Registered by hand rather than via sc._fileOp(), which owns that
+            // hook itself: this way the signals are disconnected on EVERY exit
+            // path -- success, error, and the runner's timeout (which calls
+            // sc._activeFileOpCleanup unconditionally).
+            function cleanup() {
+              Backend.FileOperations.finished.disconnect(onFinished)
+              Backend.FileOperations.error.disconnect(onError)
+              if (sc._activeFileOpCleanup === cleanup) sc._activeFileOpCleanup = null
             }
-            Backend.FileOperations.trashInfoReady.connect(onInfo)
-            Backend.FileOperations.requestTrashInfo(reqId)
-          }
-          Backend.FileOperations.finished.connect(onFinished)
-          Backend.FileOperations.emptyTrash()
+            function onError(op, path, msg) {
+              if (op !== "emptyTrash") return
+              cleanup()
+              done(false, "emptyTrash error: " + msg)
+            }
+            function onFinished(op, path) {
+              if (op !== "emptyTrash") return
+              cleanup()
+              var count = "find " + sc._q(root + "/files") + " " + sc._q(root + "/info") + " -mindepth 1 | wc -l"
+              sc._sh(["bash", "-c", count], function (r) {
+                var n = parseInt(String(r.stdout).trim(), 10)
+                done(n === 0, n === 0 ? "fixture trash emptied cleanly" : "items remained: " + n)
+              })
+            }
+            Backend.FileOperations.finished.connect(onFinished)
+            Backend.FileOperations.error.connect(onError)
+            sc._activeFileOpCleanup = cleanup
+
+            // Cleared synchronously on the very next line: emptyTrash() captures
+            // the override before queuing its job, so no exit path of this check
+            // (timeout included) can leave the var set for a later check.
+            Backend.Env.set("OMAFILES_SELFCHECK_TRASH_ROOT", root)
+            Backend.FileOperations.emptyTrash()
+            Backend.Env.set("OMAFILES_SELFCHECK_TRASH_ROOT", "")
+          })
         })
 
         // list-archive.sh over a deterministic .tar built from listDir
@@ -496,6 +521,76 @@ QtObject {
           var ok = clampedHigh && clampedLow && aspectOk
           done(ok, ok ? "clamps correctly at both ends and derives cellHeight from the original aspect ratio"
                       : ("clampedHigh=" + clampedHigh + " clampedLow=" + clampedLow + " aspectOk=" + aspectOk))
+        })
+
+        // The trash round-trip checks (CheckFilesystemTrash, CheckActions)
+        // leave ~54 fixture items in the REAL trash; until #29 the emptyTrash
+        // check above removed them only by accident, together with the user's
+        // own items. This sweeps them properly, and the origin path is the
+        // safety rule: an entry whose .trashinfo Path= is NOT under a
+        // ~/.cache/omafiles-selfcheck-* dir (no user file lives there) is the
+        // user's data and is never touched -- and since that metadata is not
+        // trusted to be canonical, a Path= containing "/../" is refused rather
+        // than resolved. The prefix covers EVERY selfcheck temp dir, not just
+        // this run's, so items left behind by a run that crashed or timed out
+        // are reclaimed too. Registered last -- no check after this one
+        // (CheckKeybindings included) touches the trash.
+        sc.add("selfcheck leaves no fixture items in the real trash", function (done) {
+          var prefix = sc.dir.replace(/omafiles-selfcheck-[^/]*$/, "omafiles-selfcheck-")
+          var reqSeq = 0
+          var active = true
+
+          // Trash metadata is async since the P0 trash-freeze fix
+          // (V1_1_P0_TRASH_FREEZE); each scan filters by its own request id.
+          // A scan still pending when the runner's watchdog settles this check
+          // would otherwise fire into the NEXT check (starting _seqOps, whose
+          // _fileOp would steal that check's cleanup hook and signals), so
+          // while one is in flight its disconnect is registered on
+          // sc._activeFileOpCleanup -- called on every settle path -- and
+          // `active` makes any late callback a no-op.
+          function scanMine(cb) {
+            var reqId = Date.now() + (reqSeq++)
+            function cleanup() {
+              active = false
+              Backend.FileOperations.trashInfoReady.disconnect(onInfo)
+              if (sc._activeFileOpCleanup === cleanup) sc._activeFileOpCleanup = null
+            }
+            function onInfo(id, info) {
+              if (id !== reqId || !active) return
+              Backend.FileOperations.trashInfoReady.disconnect(onInfo)
+              if (sc._activeFileOpCleanup === cleanup) sc._activeFileOpCleanup = null
+              var mine = []
+              for (var i = 0; i < info.length; i++) {
+                var orig = String(info[i].origPath)
+                if (orig.indexOf(prefix) === 0 && orig.indexOf("/../") === -1) mine.push(info[i])
+              }
+              cb(mine)
+            }
+            Backend.FileOperations.trashInfoReady.connect(onInfo)
+            sc._activeFileOpCleanup = cleanup
+            Backend.FileOperations.requestTrashInfo(reqId)
+          }
+
+          scanMine(function (mine) {
+            if (mine.length === 0) { done(true, "swept 0 fixture items"); return }
+            // No batch remove() in FileOperations.h -- one op per path,
+            // sequenced (files/<name> and info/<name>.trashinfo per entry).
+            var starts = []
+            for (var i = 0; i < mine.length; i++) {
+              (function (e) {
+                starts.push(function () { Backend.FileOperations.remove(e.trashRoot + "/files/" + e.name, true) })
+                starts.push(function () { Backend.FileOperations.remove(e.trashRoot + "/info/" + e.name + ".trashinfo", true) })
+              })(mine[i])
+            }
+            sc._seqOps(starts, done, function () {
+              scanMine(function (left) {
+                if (!active) return
+                done(left.length === 0, left.length === 0
+                  ? "swept " + mine.length + " fixture items"
+                  : left.length + " fixture items still in trash")
+              })
+            })
+          })
         })
   }
 }
