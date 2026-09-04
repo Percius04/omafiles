@@ -111,5 +111,66 @@ QtObject {
           Backend.JsonStore.loaded.connect(onBackupRead)
           Backend.JsonStore.read(realPath)
         })
+
+        // ui-prefs.json now carries the sort key/direction and the dotfiles
+        // toggle next to the view mode: restored by Persistence's loaded
+        // handler, saved by its new Connections. No file back-up needed (the
+        // state dir is the harness's temp dir), but the in-memory values are
+        // reset afterwards -- later checks assume the default name/asc order.
+        sc.add("ui-prefs: sort + hidden restore and save round-trip", function (done) {
+          var c = sc._content
+          if (!c) { done(false, "no composition root"); return }
+          var path = Paths.uiPrefsFile
+          var reset = false
+
+          function doReset() {
+            if (reset) return
+            reset = true
+            SortState.sortKey = "name"
+            SortState.sortDesc = false
+            NavState.showHidden = false
+            c.controllers.navController.refresh()
+          }
+          sc._activeFileOpCleanup = doReset
+
+          function resetAndFinish(pass, msg) {
+            doReset()
+            if (sc._activeFileOpCleanup === doReset) sc._activeFileOpCleanup = null
+            done(pass, msg)
+          }
+
+          function onFixtureSaved(p, sok) {
+            if (p !== path) return
+            Backend.JsonStore.saved.disconnect(onFixtureSaved)
+            if (!sok) { resetAndFinish(false, "fixture write failed"); return }
+            c.controllers.persistence.loadUiPrefs()
+            sc._poll(function () {
+              return SortState.sortKey === "size" && SortState.sortDesc && NavState.showHidden
+            }, function (applied) {
+              if (!applied) {
+                resetAndFinish(false, "not restored from disk: sortKey=" + SortState.sortKey
+                  + " sortDesc=" + SortState.sortDesc + " showHidden=" + NavState.showHidden)
+                return
+              }
+              // Save side: this change goes through the new Connections on
+              // SortState, and JsonStore.write is synchronous, so the file is
+              // already updated by the time the read below is queued.
+              SortState.sortDesc = false
+              function onFinalRead(p2, data2, ok2) {
+                if (p2 !== path) return
+                Backend.JsonStore.loaded.disconnect(onFinalRead)
+                var pass = ok2 && data2 && data2.sortKey === "size"
+                  && data2.sortDesc === false && data2.showHidden === true
+                resetAndFinish(pass, pass ? "sort key/direction and hidden toggle survive a round-trip"
+                  : "disk doesn't match after save: " + JSON.stringify(data2))
+              }
+              Backend.JsonStore.loaded.connect(onFinalRead)
+              Backend.JsonStore.read(path)
+            })
+          }
+          Backend.JsonStore.saved.connect(onFixtureSaved)
+          Backend.JsonStore.write(path, { viewMode: ViewState.mode, cellWidth: ViewState.cellWidth,
+            sortKey: "size", sortDesc: true, showHidden: true })
+        })
   }
 }

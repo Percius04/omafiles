@@ -352,6 +352,13 @@ int runSelfCheck(int argc, char *argv[]) {
     return 2;
   }
 
+  // state/Paths.qml resolves stateDir from XDG_STATE_HOME, so bookmarks,
+  // session, ui-prefs and network-profiles all land inside the temp dir: the
+  // suite is deterministic whatever the user has saved, and never writes to
+  // their real state. JsonStore::write mkpaths the parent, so this need not
+  // exist yet (integrations are already skipped via OMAFILES_SELFCHECK above).
+  qputenv("XDG_STATE_HOME", (tmp.path() + "/state").toLocal8Bit());
+
   QQmlApplicationEngine engine;
   addImportPaths(engine, resourceDir);
   SelfCheckReporter reporter;

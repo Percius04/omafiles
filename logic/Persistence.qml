@@ -81,7 +81,8 @@ Item {
   }
 
   function saveUiPrefs() {
-    _saveJson(Paths.uiPrefsFile, { viewMode: ViewState.mode, cellWidth: ViewState.cellWidth })
+    _saveJson(Paths.uiPrefsFile, { viewMode: ViewState.mode, cellWidth: ViewState.cellWidth,
+      sortKey: SortState.sortKey, sortDesc: SortState.sortDesc, showHidden: NavState.showHidden })
   }
 
   // A single delivery point for the four reads: JsonStore is a
@@ -130,6 +131,17 @@ Item {
         if (parsed && (parsed.viewMode === "grid" || parsed.viewMode === "list"))
           ViewState.mode = parsed.viewMode
         if (parsed && typeof parsed.cellWidth === "number") ViewState.setCellWidth(parsed.cellWidth)
+        // The key is validated against SortState.sortKeys so a hand-edited or
+        // future one falls back to the default instead of leaving an order
+        // nothing can produce. The re-sort/refresh cover the listing that
+        // already landed while this async read was still in flight.
+        if (parsed && SortState.sortKeys.indexOf(parsed.sortKey) >= 0) SortState.sortKey = parsed.sortKey
+        if (parsed && typeof parsed.sortDesc === "boolean") SortState.sortDesc = parsed.sortDesc
+        if (!SortState.isDefaultOrder) NavState.entries = SortState.sortEntries(NavState.entries)
+        if (parsed && typeof parsed.showHidden === "boolean" && parsed.showHidden !== NavState.showHidden) {
+          NavState.showHidden = parsed.showHidden
+          navController.refresh()
+        }
         ViewState.loaded = true
       }
     }
@@ -154,5 +166,19 @@ Item {
     id: _cellWidthSaveDebounce
     interval: 400
     onTriggered: saveUiPrefs()
+  }
+
+  // Same `loaded` guard as the view-mode save above: these singletons' own
+  // defaults must not overwrite ui-prefs.json before loadUiPrefs()'s async
+  // read arrives.
+  Connections {
+    target: SortState
+    function onSortKeyChanged() { if (ViewState.loaded) saveUiPrefs() }
+    function onSortDescChanged() { if (ViewState.loaded) saveUiPrefs() }
+  }
+
+  Connections {
+    target: NavState
+    function onShowHiddenChanged() { if (ViewState.loaded) saveUiPrefs() }
   }
 }
