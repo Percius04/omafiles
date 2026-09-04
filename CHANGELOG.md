@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* **Sort and hidden files persist across restarts.** Sort key/direction and the dotfiles toggle are saved in `ui-prefs.json` alongside the view mode.
+
 ## [1.2.0] - 2026-08-21
 
 ### Grid & List view modes
