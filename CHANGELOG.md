@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* **Instant theme follow.** Omarchy theme changes are picked up by a native file watcher (`FileWatcher`) instead of a 1.5 s poll, so `omarchy theme set` repaints immediately.
+
 ## [1.2.0] - 2026-08-21
 
 ### Grid & List view modes
