@@ -8,11 +8,11 @@ import Omafiles.Backend as Backend
 //   ~/.local/state/omarchy/current/theme/colors.toml  (foundational palette)
 //   ~/.local/state/omarchy/current/theme/shell.toml    (surfaces/typography)
 //   ~/.config/omarchy/shell.toml                        (machine override)
-// — replicating its parsing (loadColors/parseShell of Color.qml). A Timer
-// polls the files and, if they change, reloads: on switching theme in Omarchy,
-// the standalone Qt6 follows it LIVE just like Quickshell (which uses FileView).
+// — replicating its parsing (loadColors/parseShell of Color.qml). A native
+// FileWatcher reloads them on change: on switching theme in Omarchy, the
+// standalone Qt6 follows it LIVE just like Quickshell (which uses FileView).
 // Quickshell.Io doesn't exist here; a synchronous XMLHttpRequest reads the
-// local files (they're ~KB, polled every 1.5 s: negligible cost).
+// local files (they're ~KB).
 //
 // Color.qml and Style.qml (the stubs) DERIVE from this singleton; they fix nothing.
 QtObject {
@@ -111,13 +111,15 @@ QtObject {
     shellValues = merged // whole reassignment -> re-evaluates bindings
   }
 
-  // Polling of the active theme: on switching theme in Omarchy (or running
-  // `omarchy display text size`), the standalone picks it up in <=1.5 s.
-  property Timer _poll: Timer {
-    interval: 1500
-    running: true
-    repeat: true
-    onTriggered: src._reload()
+  // Live re-theme. omarchy-theme-set replaces the whole theme dir (rm + mv)
+  // and writes theme.name last, so watching theme.name -- not the TOML files
+  // themselves -- means every reload sees a complete theme. The user override
+  // is rewritten (mv) by `omarchy display text size`; its parent directory
+  // catches it being created for the first time.
+  property Backend.FileWatcher _watch: Backend.FileWatcher {
+    paths: [home + "/.local/state/omarchy/current/theme.name", userShellPath,
+            home + "/.config/omarchy"]
+    onChanged: src._reload()
   }
 
   Component.onCompleted: _reload()
