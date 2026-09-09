@@ -22,7 +22,7 @@ Rectangle {
     if (PickerState.mode === "save-file") {
       var name = saveFieldName.text.trim()
       if (name.length > 0) {
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, name))
+        uris.push(Util.fileUrl(Utils.joinPath(NavState.currentPath, name)))
       } else {
         return // don't submit empty name for save
       }
@@ -31,22 +31,26 @@ Rectangle {
       if (selected.length > 0) {
         for (var i = 0; i < selected.length; i++) {
           if (selected[i].type === "dir") {
-            uris.push("file://" + Utils.joinPath(NavState.currentPath, selected[i].name))
+            uris.push(Util.fileUrl(Utils.entryPath(NavState.currentPath, selected[i])))
           }
         }
       }
       if (uris.length === 0) {
-        uris.push("file://" + NavState.currentPath)
+        uris.push(Util.fileUrl(NavState.currentPath))
       }
     } else { // open-file
+      // Utils.entryPath, not joinPath(currentPath, name): a global search
+      // result lives in another folder and carries its absolute `path`.
+      // Joining its basename onto the folder the picker opened in handed
+      // callers a file that does not exist.
       var selected = SelectionState.selectedEntries()
       for (var i = 0; i < selected.length; i++) {
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, selected[i].name))
+        uris.push(Util.fileUrl(Utils.entryPath(NavState.currentPath, selected[i])))
       }
       // If nothing is explicitly selected but there is a highlighted item, select it
       if (uris.length === 0 && SelectionState.selectedIndex >= 0 && SelectionState.selectedIndex < NavState.visibleEntries.length) {
         var entry = NavState.visibleEntries[SelectionState.selectedIndex]
-        uris.push("file://" + Utils.joinPath(NavState.currentPath, entry.name))
+        uris.push(Util.fileUrl(Utils.entryPath(NavState.currentPath, entry)))
       }
     }
 

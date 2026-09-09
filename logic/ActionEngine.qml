@@ -1176,9 +1176,13 @@ Item {
   // selection (like Nautilus); if not, only that row.
   function dragMimeDataFor(index) {
     var indices = (SelectionState.isSelected(index) && SelectionState.selectedIndices.length > 1) ? SelectionState.selectedIndices : [index]
+    // Utils.entryPath, not pathFor(name): a global search result lives in
+    // another folder and carries its absolute `path`. Dragging one out of
+    // the search list used to hand the drop target a file that does not
+    // exist under currentPath.
     var paths = indices
       .filter(function (i) { return i >= 0 && i < NavState.visibleEntries.length })
-      .map(function (i) { return pathFor(NavState.visibleEntries[i].name) })
+      .map(function (i) { return Utils.entryPath(NavState.currentPath, NavState.visibleEntries[i]) })
     var data = {}
     data["text/uri-list"] = paths.map(function (p) { return Util.fileUrl(p) }).join("\r\n")
     return data
