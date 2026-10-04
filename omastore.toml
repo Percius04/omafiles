@@ -1,0 +1,3 @@
+kind = "app"
+categories = ["System", "FileManager", "FileTools"]
+icon = "assets/omafiles.svg"
