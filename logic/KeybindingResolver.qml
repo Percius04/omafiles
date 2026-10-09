@@ -185,6 +185,7 @@ Item {
     "tab": Qt.Key_Tab,
     "backtab": Qt.Key_Backtab,
     "backslash": Qt.Key_Backslash, "\\": Qt.Key_Backslash,
+    "period": Qt.Key_Period, ".": Qt.Key_Period,
     "f2": Qt.Key_F2, "f5": Qt.Key_F5
   })
 
@@ -213,7 +214,7 @@ Item {
   // or null if not recognized. Single letters are accepted case-insensitively.
   function _canonicalKeyName(token) {
     if (token.length === 1 && /[a-zA-Z]/.test(token)) return token.toLowerCase()
-    if (token === "/" || token === ":" || token === "?" || token === "\\") return token
+    if (token === "/" || token === ":" || token === "?" || token === "\\" || token === ".") return token
     var lower = token.toLowerCase()
     if (lower === "enter") return "return"   // both spellings mean the same physical Return/Enter key -- see _eventKeyName
     if (_namedKeys[lower] !== undefined) return lower
@@ -242,6 +243,7 @@ Item {
         if (name === "colon") return ":"
         if (name === "question") return "?"
         if (name === "backslash") return "\\"
+        if (name === "period") return "."
         return name
       }
     }
