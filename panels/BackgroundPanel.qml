@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -273,7 +274,7 @@ Item {
     anchors.top: bgHeaderRow.bottom
     anchors.topMargin: Style.spacing.rowGap
     width: parent.width
-    foreground: Color.menu.text
+    foreground: Commons.Color.menu.text
     strength: 0.15
   }
 
@@ -290,7 +291,7 @@ Item {
     text: dirLister.pathError
     font.pixelSize: Style.font.subtitle
     font.family: Style.font.family
-    color: Color.urgent
+    color: Commons.Color.urgent
   }
 
   ListView {
@@ -419,7 +420,7 @@ Item {
          + " · sort: " + SortState.sortLabel())
     font.pixelSize: Style.font.subtitle
     font.family: Style.font.family
-    color: Color.menu.text
+    color: Commons.Color.menu.text
     opacity: Style.emphasis.secondary
   }
 }

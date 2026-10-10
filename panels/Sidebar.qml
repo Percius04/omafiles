@@ -1,6 +1,7 @@
 ﻿import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared/Utils.js" as Utils
 
@@ -56,7 +57,7 @@ Item {
         implicitWidth: parent.width
         implicitHeight: 26
         radius: parent.width / 2
-        color: Util.alpha(Color.foreground, 0.28)
+        color: Util.alpha(Commons.Color.foreground, 0.28)
       }
     }
 

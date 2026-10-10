@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Omafiles' shared modal surface: darkened scrim + animated
@@ -45,7 +46,7 @@ Item {
   Rectangle {
     id: scrim
     anchors.fill: parent
-    color: Util.alpha(Color.background, 0.7)
+    color: Util.alpha(Commons.Color.background, 0.7)
     opacity: root.open ? 1 : 0
     visible: opacity > 0
     Behavior on opacity { NumberAnimation { duration: root.transitionDuration; easing.type: Easing.OutCubic } }
@@ -73,8 +74,8 @@ Item {
     Behavior on opacity { NumberAnimation { duration: root.transitionDuration; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: root.transitionDuration; easing.type: Easing.OutCubic } }
     radius: Style.cornerRadius
-    color: Color.menu.background
-    borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+    color: Commons.Color.menu.background
+    borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
     padding: Style.spacing.panelPadding
 
     // Eats clicks inside the card so they do not close the dialog.

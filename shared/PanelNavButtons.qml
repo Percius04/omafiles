@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Navigation buttons (back/forward/up) -- fourteenth component
@@ -24,7 +25,7 @@ Row {
     width: Style.spacing.controlHeight
     height: Style.spacing.controlHeight
     anchors.verticalCenter: parent.verticalCenter
-    foreground: root.canGoBack ? Color.menu.text : Qt.darker(Color.menu.text, 1.6)
+    foreground: root.canGoBack ? Commons.Color.menu.text : Qt.darker(Commons.Color.menu.text, 1.6)
     onClicked: root.backRequested()
     Accessible.role: Accessible.Button
     Accessible.name: "Back"
@@ -43,7 +44,7 @@ Row {
     width: Style.spacing.controlHeight
     height: Style.spacing.controlHeight
     anchors.verticalCenter: parent.verticalCenter
-    foreground: root.canGoForward ? Color.menu.text : Qt.darker(Color.menu.text, 1.6)
+    foreground: root.canGoForward ? Commons.Color.menu.text : Qt.darker(Commons.Color.menu.text, 1.6)
     onClicked: root.forwardRequested()
     Accessible.role: Accessible.Button
     Accessible.name: "Forward"
@@ -62,7 +63,7 @@ Row {
     width: Style.spacing.controlHeight
     height: Style.spacing.controlHeight
     anchors.verticalCenter: parent.verticalCenter
-    foreground: root.canGoUp ? Color.menu.text : Qt.darker(Color.menu.text, 1.6)
+    foreground: root.canGoUp ? Commons.Color.menu.text : Qt.darker(Commons.Color.menu.text, 1.6)
     onClicked: root.upRequested()
     Accessible.role: Accessible.Button
     Accessible.name: "Up"

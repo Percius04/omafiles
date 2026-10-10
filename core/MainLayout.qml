@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../panels"
@@ -20,7 +21,7 @@ Item {
   BorderSurface {
     id: card
     anchors.fill: parent
-    color: Color.menu.background
+    color: Commons.Color.menu.background
     borderSpec: Border.none()
     radius: Style.cornerRadius
     padding: Style.spacing.panelPadding
@@ -73,7 +74,7 @@ Item {
       Rectangle {
         width: Style.spacing.hairline
         height: parent.height
-        color: Color.menu.border
+        color: Commons.Color.menu.border
         opacity: 0.15
       }
 
@@ -102,7 +103,7 @@ Item {
               y: 0
               width: Style.spacing.hairline
               height: panelsRow.height
-              color: Color.menu.border
+              color: Commons.Color.menu.border
               opacity: 0.15
             }
           }
@@ -200,7 +201,7 @@ Item {
             width: Style.spacing.controlHeight
             height: Style.spacing.controlHeight
             anchors.verticalCenter: parent.verticalCenter
-            foreground: Color.menu.text
+            foreground: Commons.Color.menu.text
             onClicked: ViewState.toggleMode()
             Accessible.role: Accessible.Button
             Accessible.name: ViewState.mode === "grid" ? "Switch to list view" : "Switch to grid view"
@@ -261,7 +262,7 @@ Item {
                 + " · sort: " + (controllers ? controllers.SortState.sortLabel() : "")
               font.pixelSize: Style.font.subtitle
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               opacity: Style.emphasis.secondary
             }
 

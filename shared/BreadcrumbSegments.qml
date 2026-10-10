@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Breadcrumb row (path segments) -- fifteenth component
 // extracted from core, shared between the active and background panels.
@@ -35,7 +36,7 @@ Row {
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         font.bold: modelData.path === root.activePath
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: modelData.path === root.activePath ? 1.0 : Style.emphasis.secondary
       }
 
@@ -44,7 +45,7 @@ Row {
         text: "›"
         font.pixelSize: Style.font.title
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: Style.emphasis.muted
       }
     }

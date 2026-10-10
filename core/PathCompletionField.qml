@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../state"
 import Omafiles.Backend as Backend
@@ -89,8 +90,8 @@ Item {
     // read as "no background" against it. Same solid treatment as the
     // dropdown it belongs to, not a new theme.
     background: BorderSurface {
-      color: Color.menu.background
-      borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+      color: Commons.Color.menu.background
+      borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
       radius: Style.cornerRadius
     }
     // Only when the user types (not when fillWith/onVisibleChanged assign
@@ -135,8 +136,8 @@ Item {
     width: input.width
     height: Math.min(suggestList.contentHeight + 2 * Style.spacing.xs, 240)
     radius: Style.cornerRadius
-    color: Color.menu.background
-    borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+    color: Commons.Color.menu.background
+    borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
 
     ListView {
       id: suggestList
@@ -151,8 +152,8 @@ Item {
         required property int index
         width: suggestList.width
         implicitHeight: Style.spacing.controlHeight
-        foreground: Color.menu.text
-        accent: Color.accent
+        foreground: Commons.Color.menu.text
+        accent: Commons.Color.accent
         hasCursor: index === field.highlight
 
         Text {
@@ -165,7 +166,7 @@ Item {
           text: parent.modelData
           font.pixelSize: Style.font.body
           font.family: Style.font.family
-          color: parent.index === field.highlight ? Color.menu.selectedText : Color.menu.text
+          color: parent.index === field.highlight ? Commons.Color.menu.selectedText : Commons.Color.menu.text
         }
 
         MouseArea {

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 import "../shared/Utils.js" as Utils
@@ -45,7 +46,7 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
     }
 
     // ---------- Scanning ----------
@@ -60,7 +61,7 @@ Item {
         text: root.filesScanned + " files scanned…"
         font.pixelSize: Style.font.subtitle
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: Style.emphasis.secondary
       }
 
@@ -82,7 +83,7 @@ Item {
       text: "No duplicate files found here."
       font.pixelSize: Style.font.subtitle
       font.family: Style.font.family
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
     }
 
@@ -110,7 +111,7 @@ Item {
           font.pixelSize: Style.font.subtitle
           font.family: Style.font.family
           font.bold: true
-          color: Color.menu.text
+          color: Commons.Color.menu.text
         }
 
         Repeater {
@@ -131,8 +132,8 @@ Item {
               width: Style.spacing.controlHeight
               height: Style.spacing.controlHeight
               anchors.verticalCenter: parent.verticalCenter
-              foreground: Color.menu.text
-              accent: Color.accent
+              foreground: Commons.Color.menu.text
+              accent: Commons.Color.accent
               bordered: true
               hasCursor: dupCellMouse.containsMouse
               current: !!root.selected[dupRow.modelData]
@@ -152,7 +153,7 @@ Item {
               text: dupRow.modelData
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               elide: Text.ElideMiddle
             }
           }

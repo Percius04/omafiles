@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared/Utils.js" as Utils
 
@@ -28,7 +29,7 @@ Column {
 
   PanelSeparator {
     visible: root.recentFiles.length > 0
-    foreground: Color.menu.text
+    foreground: Commons.Color.menu.text
     strength: 0.15
   }
 
@@ -41,7 +42,7 @@ Column {
   PanelSectionHeader {
     visible: root.recentFiles.length > 0
     text: "RECENT"
-    foreground: Color.menu.text
+    foreground: Commons.Color.menu.text
     fontFamily: Style.font.family
     fontSize: Style.font.subtitle + 1
   }
@@ -60,8 +61,8 @@ Column {
       required property var modelData
       width: root.width
       implicitHeight: Style.spacing.controlHeight
-      foreground: Color.menu.text
-      accent: Color.accent
+      foreground: Commons.Color.menu.text
+      accent: Commons.Color.accent
       hasCursor: recentMouse.containsMouse
       Accessible.role: Accessible.ListItem
       Accessible.name: "Recent file, " + modelData.name
@@ -76,7 +77,7 @@ Column {
         text: Utils.iconFor({ type: "file", name: parent.modelData.name })
         fontFamily: Style.font.family
         fontSize: Style.font.icon + 1
-        color: Color.menu.text
+        color: Commons.Color.menu.text
       }
 
       Text {
@@ -87,7 +88,7 @@ Column {
         font.pixelSize: Style.font.title + 1
         font.family: Style.font.family
         font.weight: Font.Medium
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         elide: Text.ElideRight
         width: root.width - Style.spacing.sm * 2 - recentIcon.width - Style.spacing.xs
       }

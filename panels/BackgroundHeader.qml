@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -81,9 +82,9 @@ Row {
       anchors.fill: parent
       visible: root.bgSearching
       radius: Style.cornerRadius
-      color: Color.menu.selectedBackground
+      color: Commons.Color.menu.selectedBackground
       border.width: Style.spacing.hairline
-      border.color: Color.menu.border
+      border.color: Commons.Color.menu.border
 
       Item {
         id: bgSearchIconSlot
@@ -97,7 +98,7 @@ Row {
           text: "\u{F0349}" // nf-md-magnify
           fontFamily: Style.font.family
           fontSize: Style.font.icon
-          color: Color.menu.selectedText
+          color: Commons.Color.menu.selectedText
         }
       }
 
@@ -113,7 +114,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         text: root.modelData.searchQuery || ""
         elide: Text.ElideRight
-        color: Color.menu.selectedText
+        color: Commons.Color.menu.selectedText
         font.family: Style.font.family
         font.pixelSize: Style.font.subtitle
       }

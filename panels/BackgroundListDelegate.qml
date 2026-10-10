@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -22,8 +23,8 @@ CursorSurface {
 
   width: parent ? parent.width : 0
   implicitHeight: bgRowContent.implicitHeight + Style.spacing.md * 2
-  foreground: Color.menu.text
-  accent: Color.accent
+  foreground: Commons.Color.menu.text
+  accent: Commons.Color.accent
   hasCursor: bgRowMouse.containsMouse
   // The hover fill/border is already semi-transparent on its own
   // (Style.hoverFillFor) -- the whole bgPanel goes to opacity:0.72 to

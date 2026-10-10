@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -50,10 +51,10 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     Flickable {
       width: parent.width
@@ -88,7 +89,7 @@ Item {
               text: parent.modelData.key
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               opacity: Style.emphasis.strong
               wrapMode: Text.Wrap
             }
@@ -98,7 +99,7 @@ Item {
               text: parent.modelData.action
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               wrapMode: Text.Wrap
             }
           }

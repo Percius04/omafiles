@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -37,8 +38,8 @@ CursorSurface {
 
   width: ViewState.cellWidth
   height: ViewState.cellHeight
-  foreground: Color.menu.text
-  accent: Color.accent
+  foreground: Commons.Color.menu.text
+  accent: Commons.Color.accent
   hasCursor: mouseArea.containsMouse
   // Same 1/0.72 hover-compensation as BackgroundListDelegate.qml -- see
   // its comment for the full rationale (the whole background panel dims
@@ -125,7 +126,7 @@ CursorSurface {
         text: "󰉋"
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: Color.menu.text
+        color: Commons.Color.menu.text
       }
 
       OpticalGlyph {
@@ -134,7 +135,7 @@ CursorSurface {
         text: Utils.iconFor(modelData)
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: Color.menu.text
+        color: Commons.Color.menu.text
       }
 
       OpticalGlyph {
@@ -143,7 +144,7 @@ CursorSurface {
         text: "\u{F033A}"
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: Color.urgent
+        color: Commons.Color.urgent
       }
     }
 
@@ -159,7 +160,7 @@ CursorSurface {
       maximumLineCount: 2
       wrapMode: Text.Wrap
       elide: Text.ElideRight
-      color: cellSurface.isBroken ? Color.urgent : Color.menu.text
+      color: cellSurface.isBroken ? Commons.Color.urgent : Commons.Color.menu.text
     }
   }
 

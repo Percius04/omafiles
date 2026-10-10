@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "GitStatusColors.js" as GitStatusColors
 
@@ -98,7 +99,7 @@ Item {
       text: "󰉋"
       fontFamily: Style.font.family
       fontSize: Style.font.iconLarge
-      color: root.highlighted ? Color.menu.selectedText : Color.menu.text
+      color: root.highlighted ? Commons.Color.menu.selectedText : Commons.Color.menu.text
     }
 
     // Previously it was hidden with "!hasThumb", which decides by EXTENSION -- a
@@ -113,7 +114,7 @@ Item {
       text: root.fileIconGlyph
       fontFamily: Style.font.family
       fontSize: Style.font.iconLarge
-      color: root.highlighted ? Color.menu.selectedText : Color.menu.text
+      color: root.highlighted ? Commons.Color.menu.selectedText : Commons.Color.menu.text
     }
 
     // Broken symlink (md-link_variant_off, verified against the
@@ -126,7 +127,7 @@ Item {
       text: "\u{F033A}"
       fontFamily: Style.font.family
       fontSize: Style.font.iconLarge
-      color: Color.urgent
+      color: Commons.Color.urgent
     }
 
     // Git status badge (small colored dot, not a font glyph -- avoids
@@ -142,8 +143,8 @@ Item {
       anchors.right: parent.right
       anchors.bottom: parent.bottom
       border.width: 1
-      border.color: Color.background
-      color: GitStatusColors.colorFor(root.gitStatus, Color.urgent, Color.muted)
+      border.color: Commons.Color.background
+      color: GitStatusColors.colorFor(root.gitStatus, Commons.Color.urgent, Commons.Color.muted)
     }
   }
 
@@ -166,9 +167,9 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.weight: Font.Medium
-      color: root.isBroken ? Color.urgent
-        : root.dimmed ? Qt.darker(Color.menu.text, 1.6)
-        : (root.highlighted ? Color.menu.selectedText : Color.menu.text)
+      color: root.isBroken ? Commons.Color.urgent
+        : root.dimmed ? Qt.darker(Commons.Color.menu.text, 1.6)
+        : (root.highlighted ? Commons.Color.menu.selectedText : Commons.Color.menu.text)
       elide: Text.ElideRight
     }
 
@@ -179,7 +180,7 @@ Item {
       text: root.metaText
       font.pixelSize: Style.font.bodySmall
       font.family: Style.font.family
-      color: root.highlighted ? Color.menu.selectedText : Color.menu.text
+      color: root.highlighted ? Commons.Color.menu.selectedText : Commons.Color.menu.text
       opacity: Style.emphasis.secondary
       elide: Text.ElideRight
 

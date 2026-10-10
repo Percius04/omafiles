@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -48,8 +49,8 @@ CursorSurface {
   onHeightChanged: {
     if (height > hostRoot.measuredRowHeight) hostRoot.measuredRowHeight = height
   }
-  foreground: Color.menu.text
-  accent: Color.accent
+  foreground: Commons.Color.menu.text
+  accent: Commons.Color.accent
   hasCursor: mouseArea.containsMouse
   current: SelectionState.isSelected(index) || DropHoverState.dropHoverIndex === index
   // Alternating row background (Debian tester feedback, deferred at the

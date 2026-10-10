@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Context menu (right-click). Eighth component extracted from
@@ -128,8 +129,8 @@ Item {
     width: Math.max(200, root.maxLabelWidth + Style.spacing.sm * 2 + contentLeftInset + contentRightInset)
     height: Math.min(contextMenuColumn.implicitHeight + contentTopInset + contentBottomInset, root.height - root.menuY - Style.spacing.lg)
     radius: Style.cornerRadius
-    color: Color.menu.background
-    borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+    color: Commons.Color.menu.background
+    borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
     padding: Style.spacing.popupPadding
     z: 20
 
@@ -159,8 +160,8 @@ Item {
               readonly property bool hasSubmenu: !!modelData.items && modelData.items.length > 0
               width: contextMenuColumn.width
               implicitHeight: Style.spacing.controlHeight
-              foreground: Color.menu.text
-              accent: Color.accent
+              foreground: Commons.Color.menu.text
+              accent: Commons.Color.accent
               hasCursor: itemMouse.containsMouse && actionEnabled
 
               Text {
@@ -171,7 +172,7 @@ Item {
                 font.pixelSize: Style.font.title
                 font.family: Style.font.family
                 font.weight: Font.Medium
-                color: parent.modelData.destructive ? Color.urgent : (parent.actionEnabled ? Color.menu.text : Qt.darker(Color.menu.text, 1.8))
+                color: parent.modelData.destructive ? Commons.Color.urgent : (parent.actionEnabled ? Commons.Color.menu.text : Qt.darker(Commons.Color.menu.text, 1.8))
               }
 
               // Trailing flyout arrow for submenu-parent rows.
@@ -184,7 +185,7 @@ Item {
                 font.pixelSize: Style.font.title
                 font.family: Style.font.family
                 font.weight: Font.Medium
-                color: parent.actionEnabled ? Color.menu.text : Qt.darker(Color.menu.text, 1.8)
+                color: parent.actionEnabled ? Commons.Color.menu.text : Qt.darker(Commons.Color.menu.text, 1.8)
                 opacity: Style.emphasis.secondary
               }
 
@@ -232,7 +233,7 @@ Item {
           width: parent.width
           height: handleLen
           radius: width / 2
-          color: Util.alpha(Color.foreground, 0.28)
+          color: Util.alpha(Commons.Color.foreground, 0.28)
         }
       }
 
@@ -255,8 +256,8 @@ Item {
       width: root.submenuWidth
       height: root.submenuHeight
       radius: Style.cornerRadius
-      color: Color.menu.background
-      borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+      color: Commons.Color.menu.background
+      borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
       padding: Style.spacing.popupPadding
       z: 30
 
@@ -295,8 +296,8 @@ Item {
               required property var modelData
               width: submenuColumn.width
               implicitHeight: Style.spacing.controlHeight
-              foreground: Color.menu.text
-              accent: Color.accent
+              foreground: Commons.Color.menu.text
+              accent: Commons.Color.accent
               hasCursor: subMouse.containsMouse
 
               Text {
@@ -307,7 +308,7 @@ Item {
                 font.pixelSize: Style.font.title
                 font.family: Style.font.family
                 font.weight: Font.Medium
-                color: parent.modelData.destructive ? Color.urgent : Color.menu.text
+                color: parent.modelData.destructive ? Commons.Color.urgent : Commons.Color.menu.text
               }
 
               MouseArea {
@@ -341,7 +342,7 @@ Item {
           width: parent.width
           height: handleLen
           radius: width / 2
-          color: Util.alpha(Color.foreground, 0.28)
+          color: Util.alpha(Commons.Color.foreground, 0.28)
         }
       }
     }

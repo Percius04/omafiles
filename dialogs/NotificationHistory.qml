@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -39,7 +40,7 @@ Item {
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         font.bold: true
-        color: Color.menu.text
+        color: Commons.Color.menu.text
       }
 
       Button {
@@ -53,7 +54,7 @@ Item {
       }
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     Text {
       width: parent.width
@@ -61,7 +62,7 @@ Item {
       text: "No notifications yet."
       font.pixelSize: Style.font.bodySmall
       font.family: Style.font.family
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
     }
 
@@ -93,7 +94,7 @@ Item {
               text: parent.modelData.text
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               wrapMode: Text.Wrap
             }
 
@@ -102,11 +103,11 @@ Item {
               text: Utils.relativeTime(parent.modelData.timestamp)
               font.pixelSize: Style.font.caption
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               opacity: Style.emphasis.secondary
             }
 
-            PanelSeparator { foreground: Color.menu.text; strength: 0.08 }
+            PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.08 }
           }
         }
       }

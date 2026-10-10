@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 import "../logic"
@@ -97,7 +98,7 @@ Item {
             PanelSeparator {
               id: listSep
               anchors.top: parent.top
-              foreground: Color.menu.text
+              foreground: Commons.Color.menu.text
               strength: 0.15
             }
 
@@ -275,7 +276,7 @@ Item {
                     implicitWidth: parent.width
                     implicitHeight: Math.max(26, parent.height * (listView.height / listView.contentHeight))
                     radius: parent.width / 2
-                    color: Util.alpha(Color.foreground, 0.28)
+                    color: Util.alpha(Commons.Color.foreground, 0.28)
                   }
                 }
 
@@ -353,7 +354,7 @@ Item {
               text: NavState.currentPathError
               font.family: Style.font.family
               font.pixelSize: Style.font.subtitle
-              color: Color.urgent
+              color: Commons.Color.urgent
             }
             EmptyState {
               visible: root.loaded && NavState.currentPathError === "" && NavState.visibleEntries.length === 0
@@ -379,8 +380,8 @@ Item {
               y: Math.min(SelectionState.marqueeStartY, SelectionState.marqueeCurrentY) - activeView.contentY + activeView.y
               width: Math.abs(SelectionState.marqueeCurrentX - SelectionState.marqueeStartX)
               height: Math.abs(SelectionState.marqueeCurrentY - SelectionState.marqueeStartY)
-              color: Util.alpha(Color.accent, 0.12)
-              border.color: Color.accent
+              color: Util.alpha(Commons.Color.accent, 0.12)
+              border.color: Commons.Color.accent
               border.width: 1
               z: 5
             }

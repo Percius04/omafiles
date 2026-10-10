@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Empty state ("Nothing here yet" / "Trash is empty" / "No results
 // for...") -- thirteenth component extracted from core, and the second
@@ -27,7 +28,7 @@ Column {
 
   Text {
     text: "\u{F0209}"
-    color: Color.menu.selectedText
+    color: Commons.Color.menu.selectedText
     opacity: Style.emphasis.strong
     font.family: Style.font.family
     font.pixelSize: Style.font.displayLarge
@@ -37,7 +38,7 @@ Column {
 
   Text {
     text: root.message
-    color: Color.menu.text
+    color: Commons.Color.menu.text
     opacity: Style.emphasis.strong
     font.family: Style.font.family
     font.pixelSize: Style.font.title
@@ -48,7 +49,7 @@ Column {
   Text {
     visible: root.subMessage !== ""
     text: root.subMessage
-    color: Color.menu.text
+    color: Commons.Color.menu.text
     opacity: Style.emphasis.secondary
     font.family: Style.font.family
     font.pixelSize: Style.font.body

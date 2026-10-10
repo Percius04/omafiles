@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -36,7 +37,7 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       wrapMode: Text.Wrap
     }
 

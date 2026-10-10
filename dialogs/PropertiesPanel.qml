@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -39,11 +40,11 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       elide: Text.ElideMiddle
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     Repeater {
       model: root.multi
@@ -72,7 +73,7 @@ Item {
           text: parent.modelData.label
           font.pixelSize: Style.font.subtitle
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
         }
 
@@ -81,7 +82,7 @@ Item {
           text: parent.modelData.value
           font.pixelSize: Style.font.subtitle
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           elide: Text.ElideRight
         }
       }
