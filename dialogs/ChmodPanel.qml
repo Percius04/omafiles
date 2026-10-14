@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -53,7 +54,7 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       elide: Text.ElideMiddle
     }
 
@@ -68,12 +69,12 @@ Item {
       // disabled, it is just a secondary notice, so it
       // gets the same convention (Style.emphasis.secondary) as the
       // rest of the file's secondary text.
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
       wrapMode: Text.WordWrap
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     // Column header -- empty space to the left of the width of the
     // row label (Owner/Group/Other), then Read/Write/Exec.
@@ -93,7 +94,7 @@ Item {
           text: modelData
           font.pixelSize: Style.font.caption
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
         }
       }
@@ -123,7 +124,7 @@ Item {
           text: chmodRow.modelData.label
           font.pixelSize: Style.font.subtitle
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
         }
 
         Repeater {
@@ -140,8 +141,8 @@ Item {
             width: Style.spacing.controlHeight
             height: Style.spacing.controlHeight
             anchors.verticalCenter: parent.verticalCenter
-            foreground: Color.menu.text
-            accent: Color.accent
+            foreground: Commons.Color.menu.text
+            accent: Commons.Color.accent
             bordered: true
             hasCursor: chmodCellMouse.containsMouse
             current: root.bitSet(chmodRow.modelData.idx, modelData)
@@ -158,14 +159,14 @@ Item {
       }
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     Text {
       width: parent.width
       text: "Octal: " + root.mode
       font.pixelSize: Style.font.subtitle
       font.family: Style.font.family
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
     }
 
@@ -175,8 +176,8 @@ Item {
       label: "Apply to subfolders"
       description: "chmod -R -- also changes everything inside"
       checked: root.recursive
-      foreground: Color.menu.text
-      accent: Color.accent
+      foreground: Commons.Color.menu.text
+      accent: Commons.Color.accent
       onClicked: root.recursiveToggled()
     }
 

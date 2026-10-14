@@ -1,5 +1,6 @@
 ﻿import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -67,11 +68,11 @@ Item {
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         font.bold: true
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         elide: Text.ElideMiddle
       }
 
-      PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+      PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
       // ---- Properties info table ----
       Repeater {
@@ -98,7 +99,7 @@ Item {
             text: parent.modelData.label
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             opacity: Style.emphasis.secondary
           }
 
@@ -107,13 +108,13 @@ Item {
             text: parent.modelData.value
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             elide: Text.ElideRight
           }
         }
       }
 
-      PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+      PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
       // ---- Permissions editor ----
       Text {
@@ -122,7 +123,7 @@ Item {
         text: "Mixed permissions — choose a mode to apply to all"
         font.pixelSize: Style.font.bodySmall
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: Style.emphasis.secondary
         wrapMode: Text.WordWrap
       }
@@ -143,7 +144,7 @@ Item {
             text: modelData
             font.pixelSize: Style.font.caption
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             opacity: Style.emphasis.secondary
           }
         }
@@ -168,7 +169,7 @@ Item {
             text: chmodRow.modelData.label
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
           }
 
           Repeater {
@@ -180,8 +181,8 @@ Item {
               width: Style.spacing.controlHeight
               height: Style.spacing.controlHeight
               anchors.verticalCenter: parent.verticalCenter
-              foreground: Color.menu.text
-              accent: Color.accent
+              foreground: Commons.Color.menu.text
+              accent: Commons.Color.accent
               bordered: true
               hasCursor: chmodCellMouse.containsMouse
               current: root.bitSet(chmodRow.modelData.idx, modelData)
@@ -203,7 +204,7 @@ Item {
         text: "Octal: " + root.mode
         font.pixelSize: Style.font.subtitle
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: Style.emphasis.secondary
       }
 
@@ -213,8 +214,8 @@ Item {
         label: "Apply to subfolders"
         description: "chmod -R -- also changes everything inside"
         checked: root.recursive
-        foreground: Color.menu.text
-        accent: Color.accent
+        foreground: Commons.Color.menu.text
+        accent: Commons.Color.accent
         onClicked: root.recursiveToggled()
       }
 

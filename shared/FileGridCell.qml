@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Omafiles.Backend as Backend
 import "../shared"
@@ -52,8 +53,8 @@ CursorSurface {
   Accessible.role: Accessible.ListItem
   Accessible.name: modelData.name + (isDir ? ", folder" : ", file")
   Accessible.selected: SelectionState.isSelected(index)
-  foreground: Color.menu.text
-  accent: Color.accent
+  foreground: Commons.Color.menu.text
+  accent: Commons.Color.accent
   hasCursor: mouseArea.containsMouse
   current: SelectionState.isSelected(index) || DropHoverState.dropHoverIndex === index
 
@@ -146,7 +147,7 @@ CursorSurface {
         text: "󰉋"
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: cellSurface.current ? Color.menu.selectedText : Color.menu.text
+        color: cellSurface.current ? Commons.Color.menu.selectedText : Commons.Color.menu.text
       }
 
       OpticalGlyph {
@@ -155,7 +156,7 @@ CursorSurface {
         text: Utils.iconFor(modelData)
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: cellSurface.current ? Color.menu.selectedText : Color.menu.text
+        color: cellSurface.current ? Commons.Color.menu.selectedText : Commons.Color.menu.text
       }
 
       // Same broken-symlink glyph as FileRowVisual.qml, already verified
@@ -166,7 +167,7 @@ CursorSurface {
         text: "\u{F033A}"
         fontFamily: Style.font.family
         fontSize: cellSurface.thumbGlyphSize
-        color: Color.urgent
+        color: Commons.Color.urgent
       }
 
       // Same badge as FileRowVisual.qml (shared/GitStatusColors.js), scaled
@@ -179,8 +180,8 @@ CursorSurface {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         border.width: 1
-        border.color: Color.background
-        color: GitStatusColors.colorFor(cellContent.gitStatus, Color.urgent, Color.muted)
+        border.color: Commons.Color.background
+        color: GitStatusColors.colorFor(cellContent.gitStatus, Commons.Color.urgent, Commons.Color.muted)
       }
     }
 
@@ -198,9 +199,9 @@ CursorSurface {
       maximumLineCount: 2
       wrapMode: Text.Wrap
       elide: Text.ElideRight
-      color: cellSurface.isBroken ? Color.urgent
-        : (ClipboardState.clipboardMode === "cut" && ClipboardState.clipboardPaths.indexOf(cellContent.myPath) >= 0) ? Qt.darker(Color.menu.text, 1.6)
-        : (cellSurface.current ? Color.menu.selectedText : Color.menu.text)
+      color: cellSurface.isBroken ? Commons.Color.urgent
+        : (ClipboardState.clipboardMode === "cut" && ClipboardState.clipboardPaths.indexOf(cellContent.myPath) >= 0) ? Qt.darker(Commons.Color.menu.text, 1.6)
+        : (cellSurface.current ? Commons.Color.menu.selectedText : Commons.Color.menu.text)
     }
 
     TextField {

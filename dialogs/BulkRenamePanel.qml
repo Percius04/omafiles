@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 import "../shared/Utils.js" as Utils
@@ -45,7 +46,7 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
     }
 
     Text {
@@ -53,7 +54,7 @@ Item {
       text: "Use {name}, {ext}, {n} (sequence number, or {n:3} to zero-pad) — Find/Replace below run first, on the name"
       font.pixelSize: Style.font.subtitle
       font.family: Style.font.family
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
       wrapMode: Text.Wrap
     }
@@ -149,7 +150,7 @@ Item {
           text: modelData.oldName
           font.pixelSize: Style.font.bodySmall
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
           elide: Text.ElideMiddle
         }
@@ -159,7 +160,7 @@ Item {
           text: "→"
           font.pixelSize: Style.font.bodySmall
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
         }
 
@@ -169,7 +170,7 @@ Item {
           text: modelData.newName || "(empty — won't be renamed)"
           font.pixelSize: Style.font.bodySmall
           font.family: Style.font.family
-          color: modelData.newName ? Color.menu.text : Color.urgent
+          color: modelData.newName ? Commons.Color.menu.text : Commons.Color.urgent
           elide: Text.ElideMiddle
         }
 
@@ -180,7 +181,7 @@ Item {
           text: "(same)"
           font.pixelSize: Style.font.bodySmall
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
         }
       }
@@ -203,8 +204,8 @@ Item {
           required property string modelData
           width: chipText.implicitWidth + Style.spacing.sm * 2
           height: Style.spacing.controlHeight * 0.8
-          foreground: Color.menu.text
-          accent: Color.accent
+          foreground: Commons.Color.menu.text
+          accent: Commons.Color.accent
           // Without this it was confused with loose text at rest -- the
           // same component already carries a permanent border in the chmod
           // permissions grid (chmodCell) for this exact
@@ -220,7 +221,7 @@ Item {
             text: patternChip.modelData
             font.pixelSize: Style.font.bodySmall
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
           }
 
           MouseArea {

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -41,8 +42,8 @@ Item {
     anchors.horizontalCenter: parent.horizontalCenter
     y: Style.spacing.huge
     radius: Style.cornerRadius
-    color: Color.menu.background
-    borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+    color: Commons.Color.menu.background
+    borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
     // Same popup padding as the context menu (popupPadding, 14): the
     // two menus share the system spacing instead of the tight sm (4).
     padding: Style.spacing.popupPadding
@@ -89,7 +90,7 @@ Item {
         }
       }
 
-      PanelSeparator { id: paletteSep; foreground: Color.menu.text; strength: 0.15 }
+      PanelSeparator { id: paletteSep; foreground: Commons.Color.menu.text; strength: 0.15 }
 
       ListView {
         id: paletteList
@@ -106,8 +107,8 @@ Item {
           readonly property bool cmdEnabled: modelData.enabled !== false
           width: paletteList.width
           implicitHeight: Style.spacing.controlHeight
-          foreground: Color.menu.text
-          accent: Color.accent
+          foreground: Commons.Color.menu.text
+          accent: Commons.Color.accent
           hasCursor: index === root.index && cmdEnabled
 
           Text {
@@ -118,7 +119,7 @@ Item {
             font.pixelSize: Style.font.title
             font.family: Style.font.family
             font.weight: Font.Medium
-            color: parent.cmdEnabled ? (index === root.index ? Color.menu.selectedText : Color.menu.text) : Qt.darker(Color.menu.text, 1.8)
+            color: parent.cmdEnabled ? (index === root.index ? Commons.Color.menu.selectedText : Commons.Color.menu.text) : Qt.darker(Commons.Color.menu.text, 1.8)
           }
 
           MouseArea {

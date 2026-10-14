@@ -1,6 +1,7 @@
 import QtQuick
 import QtMultimedia
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -80,8 +81,8 @@ Item {
     anchors.right: parent.right
     width: parent.width * 0.45 - Style.spacing.rowGap
     radius: Style.cornerRadius
-    color: Color.menu.selectedBackground
-    borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+    color: Commons.Color.menu.selectedBackground
+    borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
     padding: Style.spacing.sm
 
     MouseArea { anchors.fill: parent; onClicked: {} }
@@ -101,11 +102,11 @@ Item {
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         font.bold: true
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         elide: Text.ElideMiddle
       }
 
-      PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+      PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
       // Everything below is exactly ONE of several mutually-exclusive
       // content kinds (image/video/text/pdf/audio/no-preview/empty),
@@ -217,7 +218,7 @@ Item {
           text: root.highlightedText
           font.pixelSize: Style.font.subtitle
           font.family: "monospace"
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           wrapMode: Text.Wrap
         }
 
@@ -228,7 +229,7 @@ Item {
           text: root.plainText || "(empty)"
           font.pixelSize: Style.font.subtitle
           font.family: "monospace"
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           wrapMode: Text.Wrap
         }
       }
@@ -320,7 +321,7 @@ Item {
                 text: parent.modelData.label
                 font.pixelSize: Style.font.subtitle
                 font.family: Style.font.family
-                color: Color.menu.text
+                color: Commons.Color.menu.text
                 opacity: Style.emphasis.secondary
               }
 
@@ -329,7 +330,7 @@ Item {
                 text: parent.modelData.value
                 font.pixelSize: Style.font.subtitle
                 font.family: Style.font.family
-                color: Color.menu.text
+                color: Commons.Color.menu.text
                 elide: Text.ElideRight
               }
             }
@@ -352,7 +353,7 @@ Item {
           text: "No preview available"
           font.pixelSize: Style.font.title
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.muted
         }
 
@@ -362,7 +363,7 @@ Item {
           text: "Press Enter to open with default app"
           font.pixelSize: Style.font.subtitle
           font.family: Style.font.family
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.secondary
         }
       }

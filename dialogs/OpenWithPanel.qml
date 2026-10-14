@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -31,11 +32,11 @@ Item {
       font.pixelSize: Style.font.title
       font.family: Style.font.family
       font.bold: true
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       elide: Text.ElideMiddle
     }
 
-    PanelSeparator { foreground: Color.menu.text; strength: 0.15 }
+    PanelSeparator { foreground: Commons.Color.menu.text; strength: 0.15 }
 
     Text {
       visible: root.apps.length === 0
@@ -43,7 +44,7 @@ Item {
       text: "No registered applications for this file type."
       font.pixelSize: Style.font.title
       font.family: Style.font.family
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       opacity: Style.emphasis.secondary
       wrapMode: Text.Wrap
     }
@@ -55,8 +56,8 @@ Item {
         required property var modelData
         width: parent.width
         implicitHeight: Style.spacing.controlHeight
-        foreground: Color.menu.text
-        accent: Color.accent
+        foreground: Commons.Color.menu.text
+        accent: Commons.Color.accent
         hasCursor: appMouse.containsMouse
 
         Text {
@@ -67,7 +68,7 @@ Item {
           font.pixelSize: Style.font.title
           font.family: Style.font.family
           font.weight: Font.Medium
-          color: Color.menu.text
+          color: Commons.Color.menu.text
         }
 
         MouseArea {

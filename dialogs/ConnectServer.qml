@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared"
 
@@ -61,7 +62,7 @@ Item {
         font.pixelSize: Style.font.title
         font.family: Style.font.family
         font.bold: true
-        color: Color.menu.text
+        color: Commons.Color.menu.text
       }
 
       Text {
@@ -70,7 +71,7 @@ Item {
         text: "sftp://user@host/path · smb://server/share · dav(s)://host/path · ftp://host/path"
         font.pixelSize: Style.font.bodySmall
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         opacity: Style.emphasis.secondary
         wrapMode: Text.Wrap
       }
@@ -94,7 +95,7 @@ Item {
               text: profileRow.modelData
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               elide: Text.ElideMiddle
               MouseArea {
                 anchors.fill: parent
@@ -107,7 +108,7 @@ Item {
               text: "×"
               font.pixelSize: Style.font.bodySmall
               font.family: Style.font.family
-              color: Color.menu.text
+              color: Commons.Color.menu.text
               opacity: Style.emphasis.secondary
               MouseArea {
                 anchors.fill: parent
@@ -146,7 +147,7 @@ Item {
         text: root.authMessage
         font.pixelSize: Style.font.bodySmall
         font.family: Style.font.family
-        color: Color.menu.text
+        color: Commons.Color.menu.text
         wrapMode: Text.Wrap
       }
 
@@ -188,8 +189,8 @@ Item {
           id: rememberSessionCheckbox
           width: Style.space(20)
           height: Style.space(20)
-          color: checked ? Color.accent : "transparent"
-          border.color: Color.menu.border
+          color: checked ? Commons.Color.accent : "transparent"
+          border.color: Commons.Color.menu.border
           property bool checked: true
           MouseArea {
             anchors.fill: parent
@@ -199,14 +200,14 @@ Item {
             anchors.centerIn: parent
             visible: rememberSessionCheckbox.checked
             text: "✓"
-            color: Color.menu.background
+            color: Commons.Color.menu.background
             font.pixelSize: Style.font.bodySmall
           }
         }
         Text {
           text: "Remember for this session"
           font.pixelSize: Style.font.bodySmall
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           anchors.verticalCenter: parent.verticalCenter
         }
       }
@@ -217,7 +218,7 @@ Item {
         text: root.errorText
         font.pixelSize: Style.font.bodySmall
         font.family: Style.font.family
-        color: Color.urgent
+        color: Commons.Color.urgent
         wrapMode: Text.Wrap
       }
 

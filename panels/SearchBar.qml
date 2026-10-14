@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../state"
 
@@ -80,9 +81,9 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: Style.cornerRadius
-    color: NavState.searching ? Color.menu.selectedBackground : "transparent"
+    color: NavState.searching ? Commons.Color.menu.selectedBackground : "transparent"
     border.width: NavState.searching ? Style.spacing.hairline : 0
-    border.color: Color.menu.border
+    border.color: Commons.Color.menu.border
     // Same as the width animation: during a tab switch the background must NOT
     // fade (otherwise the collapsed magnifier of the tab you arrive at
     // flickers "selected" as the selectedBackground fades out). Snap.
@@ -168,7 +169,7 @@ Item {
       text: "\u{F0349}" // nf-md-magnify
       fontFamily: Style.font.family
       fontSize: Style.font.icon
-      color: NavState.searching ? Color.menu.selectedText : Color.menu.text
+      color: NavState.searching ? Commons.Color.menu.selectedText : Commons.Color.menu.text
       opacity: NavState.searching ? 1 : Style.emphasis.strong
     }
 
@@ -182,7 +183,7 @@ Item {
       visible: NavState.searchBusy
       Rectangle {
         width: 4; height: 4; radius: 2
-        color: Color.accent
+        color: Commons.Color.accent
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
       }

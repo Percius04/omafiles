@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../shared/Utils.js" as Utils
 
@@ -32,7 +33,7 @@ Column {
   }
 
   PanelSeparator {
-    foreground: Color.menu.text
+    foreground: Commons.Color.menu.text
     strength: 0.15
   }
 
@@ -43,7 +44,7 @@ Column {
 
   PanelSectionHeader {
     text: "DEVICES"
-    foreground: Color.menu.text
+    foreground: Commons.Color.menu.text
     fontFamily: Style.font.family
     fontSize: Style.font.subtitle + 1
   }
@@ -69,8 +70,8 @@ Column {
       readonly property real _extraHeight: hasUsage ? (_barHeight + _barGap) : 0
       width: root.width
       implicitHeight: Style.spacing.controlHeight + _extraHeight
-      foreground: Color.menu.text
-      accent: Color.accent
+      foreground: Commons.Color.menu.text
+      accent: Commons.Color.accent
       hasCursor: mountMouse.containsMouse
       current: isCurrent || root.dropHoverPath === modelData.path
       Accessible.role: Accessible.ListItem
@@ -104,7 +105,7 @@ Column {
         text: root.iconForMount ? root.iconForMount(parent.modelData) : ""
         fontFamily: Style.font.family
         fontSize: Style.font.icon + 1
-        color: parent.isCurrent ? Color.menu.selectedText : Color.menu.text
+        color: parent.isCurrent ? Commons.Color.menu.selectedText : Commons.Color.menu.text
       }
 
       Text {
@@ -117,7 +118,7 @@ Column {
         font.pixelSize: Style.font.title + 1
         font.family: Style.font.family
         font.weight: Font.Medium
-        color: parent.isCurrent ? Color.menu.selectedText : Color.menu.text
+        color: parent.isCurrent ? Commons.Color.menu.selectedText : Commons.Color.menu.text
         elide: Text.ElideRight
         width: root.width - Style.spacing.sm * 2 - mountIcon.width - Style.spacing.xs
           - (parent.modelData.removable ? Style.font.title + 1 + Style.spacing.sm : 0)
@@ -170,7 +171,7 @@ Column {
           text: "\u{F01EA}" // nf-md-eject
           fontFamily: Style.font.family
           fontSize: Style.font.icon + 1
-          color: ejectSlot.isCurrent ? Color.menu.selectedText : Color.menu.text
+          color: ejectSlot.isCurrent ? Commons.Color.menu.selectedText : Commons.Color.menu.text
           opacity: ejectSlot.hovered ? 0.95 : Style.emphasis.muted
           Behavior on opacity { NumberAnimation { duration: 120 } }
           Behavior on anchors.rightMargin { NumberAnimation { duration: 120 } }
@@ -184,7 +185,7 @@ Column {
           visible: ejectSlot.ejecting
           Rectangle {
             width: 3; height: 3; radius: 1.5
-            color: Color.accent
+            color: Commons.Color.accent
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
           }
@@ -221,7 +222,7 @@ Column {
         Rectangle {
           anchors.fill: parent
           radius: height / 2
-          color: Color.menu.text
+          color: Commons.Color.menu.text
           opacity: Style.emphasis.muted
         }
         Rectangle {
@@ -230,7 +231,7 @@ Column {
           anchors.bottom: parent.bottom
           width: parent.width * usageBar.fraction
           radius: height / 2
-          color: Color.accent
+          color: Commons.Color.accent
         }
       }
     }

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../state"
 import "../shared/Utils.js" as Utils
@@ -10,8 +11,8 @@ import "../shared/Utils.js" as Utils
 Rectangle {
   id: pickerBar
   height: Style.spacing.controlHeight + Style.spacing.panelPadding * 2
-  color: Color.menu.background
-  border.color: Color.menu.border
+  color: Commons.Color.menu.background
+  border.color: Commons.Color.menu.border
   border.width: Style.spacing.hairline
   radius: Style.cornerRadius
 
@@ -94,7 +95,7 @@ Rectangle {
     Text {
       id: modeLabel
       text: PickerState.mode === "save-file" ? "Save as:" : (PickerState.mode === "open-dir" ? "Choose folder:" : "Open:")
-      color: Color.menu.text
+      color: Commons.Color.menu.text
       font.pixelSize: Style.font.body
       font.family: Style.font.family
       anchors.verticalCenter: parent.verticalCenter

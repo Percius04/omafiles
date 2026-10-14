@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 import Omafiles.Backend as Backend
 import "../core"
 import "."
@@ -27,7 +28,7 @@ ApplicationWindow {
   minimumWidth: 560
   minimumHeight: 380
   title: "Omafiles"
-  color: Color.menu.background
+  color: Commons.Color.menu.background
 
   HostAdapter {
     id: adapter

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../dialogs"
 import "../state"
@@ -166,8 +167,8 @@ Item {
         width: actionBusyStack.width
         height: pendingLabel.implicitHeight + contentTopInset + contentBottomInset
         radius: Style.cornerRadius
-        color: Color.menu.background
-        borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+        color: Commons.Color.menu.background
+        borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
         padding: Style.spacing.sm
         opacity: 0.7
 
@@ -186,7 +187,7 @@ Item {
             text: modelData.label
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             elide: Text.ElideMiddle
           }
 
@@ -196,7 +197,7 @@ Item {
             text: "Pending"
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Qt.darker(Color.menu.text, 2)
+            color: Qt.darker(Commons.Color.menu.text, 2)
           }
 
           Button {
@@ -217,8 +218,8 @@ Item {
       width: parent.width
       height: actionBusyColumn.implicitHeight + contentTopInset + contentBottomInset
       radius: Style.cornerRadius
-      color: Color.menu.background
-      borderSpec: Border.flat(Color.menu.border, Style.normalBorderWidth)
+      color: Commons.Color.menu.background
+      borderSpec: Border.flat(Commons.Color.menu.border, Style.normalBorderWidth)
       padding: Style.spacing.sm
 
       Column {
@@ -241,7 +242,7 @@ Item {
             text: ActionState.actionLabel + (ActionState.actionProgressPct >= 0 ? " " + Math.round(ActionState.actionProgressPct) + "%" : (root ? root.actionBusyDots : ""))
             font.pixelSize: Style.font.subtitle
             font.family: Style.font.family
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             // Middle-elide, not right-elide: a long/garbled filename (scene-
             // release names, multi-part archives) loses its extension and
             // any distinguishing tail entirely when cut from the right --
@@ -272,9 +273,9 @@ Item {
           // not just color.
           height: 6
           radius: height / 2
-          color: Qt.darker(Color.menu.text, 7)
+          color: Qt.darker(Commons.Color.menu.text, 7)
           border.width: 1
-          border.color: Qt.darker(Color.menu.text, 4)
+          border.color: Qt.darker(Commons.Color.menu.text, 4)
 
           Rectangle {
             // Math.max(height, ...): a rounded nub is visible from the very
@@ -282,7 +283,7 @@ Item {
             width: Math.max(parent.height, parent.width * (ActionState.actionProgressPct / 100))
             height: parent.height
             radius: height / 2
-            color: Color.accent
+            color: Commons.Color.accent
             Behavior on width { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
           }
         }
@@ -333,8 +334,8 @@ Item {
         : "Send " + ActionState.pendingDeleteNames.length + " items to trash?")
     confirmText: "Delete"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: ActionState.pendingDeleteNames = []
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.confirmDelete()
   }
@@ -349,8 +350,8 @@ Item {
       : ""
     confirmText: "Overwrite"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingRename()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingRename(true)
   }
@@ -365,8 +366,8 @@ Item {
       : ""
     confirmText: "Overwrite"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFile()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingNewFile(true)
   }
@@ -381,8 +382,8 @@ Item {
       : ""
     confirmText: "Overwrite"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingNewFolder()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingNewFolder(true)
   }
@@ -397,8 +398,8 @@ Item {
       : ConflictState.extractConflictNames.length + " items already exist here and will be overwritten."
     confirmText: "Overwrite"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingExtract()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingExtract()
   }
@@ -411,8 +412,8 @@ Item {
     message: ConflictState.pendingCompress ? "\"" + ConflictState.pendingCompress.archiveName + "\" already exists. Overwrite it?" : ""
     confirmText: "Overwrite"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingCompress()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingCompress()
   }
@@ -427,8 +428,8 @@ Item {
       : ConflictState.bulkRenameConflictCount + " renames would collide with existing or duplicate names and will be skipped. Rename the rest?"
     confirmText: "Continue"
     cancelText: "Cancel"
-    background: Color.menu.background
-    foreground: Color.menu.text
+    background: Commons.Color.menu.background
+    foreground: Commons.Color.menu.text
     onCanceled: if (controllers && controllers.actionEngine) controllers.actionEngine.cancelPendingBulkRename()
     onConfirmed: if (controllers && controllers.actionEngine) controllers.actionEngine.runPendingBulkRename()
   }
