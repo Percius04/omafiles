@@ -144,6 +144,7 @@ Item {
   // switch, which already decide the correct history entry themselves and
   // don't want it touched again).
   function _goToPath(path) {
+    NavState.navigationStarted()
     // Any real navigation (bookmark, back/forward, tab
     // switch, editing the path by hand...) exits the "inside an
     // archive" mode -- currentPath never changes while browsing INSIDE

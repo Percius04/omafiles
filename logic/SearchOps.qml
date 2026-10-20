@@ -6,6 +6,38 @@ import "../state"
 // extracted from core.
 Item {
   property Item root: null
+  property bool _published: false
+  property bool _bound: false
+  property int _originTab: -1
+  property string _originRoot: ""
+  property string _originQuery: ""
+
+  function cancelSearch() {
+    if (!_bound) return
+    _bound = false
+    searchBackend.cancel()
+    NavState.searchBusy = false
+  }
+
+  function _matchesOrigin() {
+    return _bound && NavState.searching && TabsState.activeTabIndex === _originTab
+        && NavState.currentPath === _originRoot && NavState.searchQuery === _originQuery
+  }
+
+  // Invalidate at the transition, not just by equality at delivery: navigating
+  // away and back to an identical root/query must not resurrect an old search.
+  Connections {
+    target: NavState
+    function onCurrentPathChanged() { cancelSearch() }
+    function onSearchQueryChanged() { cancelSearch() }
+    function onSearchingChanged() { cancelSearch() }
+    function onShowHiddenChanged() { cancelSearch() }
+    function onNavigationStarted() { cancelSearch() }
+  }
+  Connections {
+    target: TabsState
+    function onActiveTabIndexChanged() { cancelSearch() }
+  }
   property Item navController: null
 
   // The main ListView (id "list" in core) -- these actions
@@ -35,7 +67,7 @@ Item {
   }
 
   function exitSearch() {
-    searchBackend.cancel()
+    cancelSearch()
     NavState.searching = false
     NavState.searchQuery = ""
     NavState.searchTruncated = false
@@ -49,19 +81,24 @@ Item {
     // 0-1 the searcher shows the normal listing (see restoreListing, called
     // by the SearchBar debounce).
     if (NavState.searchQuery.length < 2) return
+    cancelSearch()
+    _originTab = TabsState.activeTabIndex
+    _originRoot = NavState.currentPath
+    _originQuery = NavState.searchQuery
+    _bound = true
+    _published = false
     NavState.searchBusy = true
     list.setContentY(list.originY)
-    // Indexed GLOBAL search: SearchBackend queries the system
-    // index (tracker3/plocate) and, if there is none, falls back to the
-    // recursive SearchWorker from currentPath. Cancelable; a new search
-    // invalidates the previous one. The UI doesn't know which backend responded.
+    // Hybrid search: live current-folder matches plus the global index.
+    // Either may publish first; snapshots are merged, scoped and deduplicated.
+    // A new query invalidates both sources without blocking the UI.
     searchBackend.search(NavState.searchQuery, NavState.showHidden, NavState.currentPath)
   }
 
   // Returns to the normal listing of currentPath without closing the searcher:
   // called by the SearchBar debounce when the query drops below 2 characters.
   function restoreListing() {
-    searchBackend.cancel()
+    cancelSearch()
     NavState.searchBusy = false
     NavState.searchTruncated = false
     list.setContentY(list.originY)
@@ -88,12 +125,31 @@ Item {
   SearchBackend {
     id: searchBackend
     indexScript: Paths.resourceDir + "/scripts/runtime/search-index.sh"
-    onResults: function (entries, truncated) {
-      NavState.searchBusy = false
+    onResults: function (entries, truncated, complete) {
+      if (!_matchesOrigin()) return
+      NavState.searchBusy = !complete
       NavState.searchTruncated = truncated
+      // Result ranks can change as either source arrives. Capture identity, not
+      // indices: Enter must never target a different file after a late snapshot.
+      var old = NavState.visibleEntries
+      var selected = SelectionState.selectedIndices.map(function(i) { return old[i] ? old[i].path : "" })
+      var primary = old[SelectionState.selectedIndex] ? old[SelectionState.selectedIndex].path : ""
+      var anchor = old[SelectionState.anchorIndex] ? old[SelectionState.anchorIndex].path : ""
+      var scrollY = list.contentY
       NavState.entries = entries
-      list.positionViewAtBeginning()
-      SelectionState.selectOnly(NavState.visibleEntries.length > 0 ? 0 : -1)
+      if (!_published) {
+        // Empty progress must not consume initial selection; once selected,
+        // later snapshots preserve even deliberate deselection.
+        _published = NavState.visibleEntries.length > 0
+        list.positionViewAtBeginning()
+        SelectionState.selectOnly(NavState.visibleEntries.length > 0 ? 0 : -1)
+      } else {
+        var paths = NavState.visibleEntries.map(function(e) { return e.path })
+        SelectionState.selectedIndices = selected.map(function(p) { return paths.indexOf(p) }).filter(function(i) { return i >= 0 })
+        SelectionState.selectedIndex = primary ? paths.indexOf(primary) : -1
+        SelectionState.anchorIndex = anchor ? paths.indexOf(anchor) : -1
+        list.setContentY(scrollY)
+      }
     }
   }
 }

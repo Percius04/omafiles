@@ -1,99 +1,76 @@
 import QtQuick
 import Omafiles.Backend as Backend
 
-// GLOBAL search service. Abstracts three backends behind a SINGLE contract
-// (search / cancel / results signal), identical to SearchWorker's, so the
-// UI never knows which one responded:
-//
-//   1. System index -- scripts/search-index.sh (tracker3 -> plocate ->
-//      locate). Fast, does NOT walk disk, returns ABSOLUTE paths.
-//   2. Recursive SearchWorker (C++), ONLY if the script exits with code 2
-//      (no index installed): walks from `fallbackRoot`, paths
-//      RELATIVE to that folder. It is the degraded mode -- same result as
-//      before this phase.
-//
-// The indexed entries carry {type,name(basename),path,parent,...} with an
-// absolute path; the fallback ones keep {type,name(relative),...}. Utils
-// .entryPath() unifies both for the rest of the code (thumbnails, open...).
-//
-// The relevance order is applied here by _rank() (not the script nor sortOps):
-// exact > prefix > substring > path-only; on ties, shorter path and
-// then alphabetical. It is what Nautilus/Spotlight expects: the "closest" to
-// the term, on top.
+// Filename search combines a fresh current-folder walk with the fast global
+// index. Either may arrive first; each publication is the merged snapshot.
 Item {
   id: backend
-
-  // Absolute path to the NAME index script. The caller sets it (logic/,
-    property string indexScript: ""
-  // CONTENT search script (ripgrep). Fourth backend, triggered with
-  // the `content:` prefix in the query (Phase 26 / Beta 3).
+  property string indexScript: ""
   property string contentScript: ""
-
-  signal results(var entries, bool truncated)
-
+  signal results(var entries, bool truncated, bool complete)
   readonly property int maxResults: 200
 
   property string _query: ""
   property string _root: ""
   property bool _hidden: false
-  // "name" (index/recursive) or "content" (ripgrep) -- fixes the parsing and whether there is
-  // a recursive fallback (only in name).
   property string _mode: "name"
+  property bool _active: false
+  property var _localEntries: []
+  property var _indexedEntries: []
+  property bool _localTruncated: false
+  property bool _localDone: true
+  property bool _indexDone: true
 
-  // Coalescing of the IN-FLIGHT query. ProcessRunner.start() refuses if there is already
-  // a live process (returns false), so typing fast would lose the
-  // intermediate searches while the plocate of the first prefix (hundreds of
-  // `stat` in bash, ~200ms) keeps running. Instead of queueing, we keep ONLY
-  // the most recent query and cancel the current one; on its death (onFinished) the
-  // pending one is relaunched. Result: fluid "search as you type", without accumulating
-  // processes nor blocking -- it is what the assignment asked for ("cancel previous
-  // searches, without blocking the UI").
+  // ProcessRunner refuses a second start until cancellation finishes. Only the
+  // newest INDEX request is retained. The local walk starts immediately even
+  // if a cancelled index script is slow to exit.
   property bool _pending: false
-  property string _pendingQuery: ""
-  property string _pendingRoot: ""
-  property bool _pendingHidden: false
 
   function search(query, showHidden, fallbackRoot) {
-    if (indexProc.busy) {
-      _pending = true
-      _pendingQuery = query
-      _pendingRoot = fallbackRoot
-      _pendingHidden = showHidden
-      indexProc.cancel() // the relaunch happens in onFinished(cancelled)
-      recursive.cancel()
-      return
-    }
-    _startNow(query, showHidden, fallbackRoot)
-  }
-
-  function _startNow(query, showHidden, fallbackRoot) {
-    recursive.cancel() // cuts any recursive fallback still in progress
+    _pending = false
+    if (indexProc.busy)
+      indexProc.cancel()
+    recursive.cancel()
+    _active = true
     _query = query
-    _root = fallbackRoot
+    _root = fallbackRoot.replace(/\/+$/, "") || "/"
     _hidden = showHidden
-    // CONTENT mode: `content:` prefix. The term goes after, without enclosing
-    // quotes (`content:"foo bar"` -> foo bar). Searches INSIDE the files
-    // of the fallbackRoot tree (the current folder) via native SearchWorker.
+    _localEntries = []
+    _indexedEntries = []
+    _localTruncated = false
+    _localDone = false
+    _indexDone = false
     if (query.indexOf("content:") === 0) {
       _mode = "content"
+      _indexDone = true
       var term = query.substring(8)
       if ((term.charAt(0) === '"' && term.charAt(term.length - 1) === '"')
           || (term.charAt(0) === "'" && term.charAt(term.length - 1) === "'"))
         term = term.substring(1, term.length - 1)
-      if (term.length < 2) { // term too short: nothing to search yet
-        backend.results([], false)
+      if (term.length < 2) {
+        _localDone = true
+        backend.results([], false, true)
         return
       }
-      recursive.searchContent(fallbackRoot, term, showHidden)
+      recursive.searchContent(_root, term, showHidden)
       return
     }
-    // NAME mode (system index). We request maxResults+1 to mark
-    // truncated exactly (the script over-requests to compensate for the filtering).
     _mode = "name"
-    indexProc.start([indexScript, query, String(maxResults + 1), showHidden ? "1" : "0"])
+    recursive.search(_root, query, showHidden)
+    if (indexProc.busy)
+      _pending = true
+    else
+      _startIndex()
+  }
+
+  function _startIndex() {
+    indexProc.start([indexScript, _query, String(maxResults + 1), _hidden ? "1" : "0"])
   }
 
   function cancel() {
+    _active = false
+    _localDone = true
+    _indexDone = true
     _pending = false
     indexProc.cancel()
     recursive.cancel()
@@ -101,81 +78,83 @@ Item {
 
   Backend.ProcessRunner {
     id: indexProc
-    onFinished: function (result) {
+    onFinished: function(result) {
       if (backend._pending) {
-        // It was cancelled to relaunch with the most recent query (coalescing).
         backend._pending = false
-        backend._startNow(backend._pendingQuery, backend._pendingHidden, backend._pendingRoot)
+        backend._startIndex()
         return
       }
-      if (result.cancelled)
+      if (result.cancelled || !backend._active || backend._mode !== "name")
         return
-      if (result.exitCode === 2) {
-        // No system index available -> recursive search from the current folder.
-        recursive.search(backend._root, backend._query, backend._hidden)
-        return
-      }
-      var parsed = backend._rank(String(result.stdout || ""), backend._query)
-      backend.results(parsed.entries, parsed.truncated)
+      backend._indexDone = true
+      backend._indexedEntries = backend._parse(String(result.stdout || ""))
+      backend._publish()
     }
   }
 
   Backend.SearchWorker {
     id: recursive
-    onResults: function (entries, truncated) {
-      backend.results(entries, truncated)
+    onSnapshot: function(entries, truncated, complete) {
+      if (!backend._active)
+        return
+      backend._localDone = complete
+      if (backend._mode === "content") {
+        backend.results(entries, truncated, complete)
+        return
+      }
+      backend._localEntries = entries.map(function(e) {
+        var copy = Object.assign({}, e)
+        copy.path = e.path || (backend._root === "/" ? "/" : backend._root + "/") + e.name
+        var slash = copy.path.lastIndexOf("/")
+        copy.name = copy.path.substring(slash + 1)
+        copy.parent = copy.path.substring(0, slash) || "/"
+        return copy
+      })
+      backend._localTruncated = truncated
+      backend._publish()
     }
   }
 
-  // Parses the script's TSV ("type\tABSOLUTE_PATH" per line) and sorts it by
-  // relevance. Returns {entries, truncated}.
-  function _rank(stdout, query) {
-    var q = query.toLowerCase()
+  function _parse(stdout) {
+    var entries = []
     var lines = stdout.split("\n")
-    var scored = []
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i]
-      if (line === "")
-        continue
-      var tab = line.indexOf("\t")
+    for (var i = 0; i < lines.length; ++i) {
+      var tab = lines[i].indexOf("\t")
       if (tab < 0)
         continue
-      var type = line.substring(0, tab)
-      var path = line.substring(tab + 1)
+      var path = lines[i].substring(tab + 1)
+      if (path.charAt(0) !== "/")
+        continue
       var slash = path.lastIndexOf("/")
-      var name = slash >= 0 ? path.substring(slash + 1) : path
-      var parent = slash > 0 ? path.substring(0, slash) : "/"
-      var lname = name.toLowerCase()
-      var score = 3
-      if (lname === q)
-        score = 0
-      else if (lname.indexOf(q) === 0)
-        score = 1
-      else if (lname.indexOf(q) >= 0)
-        score = 2
-      scored.push({
-        "type": type,
-        "name": name,
-        "path": path,
-        "parent": parent,
-        "size": 0,
-        "mtime": 0,
-        "link": false,
-        "_score": score,
-        "_len": path.length
-      })
+      entries.push({type: lines[i].substring(0, tab), path: path,
+                    name: path.substring(slash + 1), parent: path.substring(0, slash) || "/",
+                    size: 0, mtime: 0, link: false})
     }
-    scored.sort(function (a, b) {
-      if (a._score !== b._score)
-        return a._score - b._score
-      if (a._len !== b._len)
-        return a._len - b._len
+    return entries
+  }
+
+  function _publish() {
+    var q = _query.toLowerCase()
+    var prefix = _root === "/" ? "/" : _root + "/"
+    // Prefer live metadata when the same absolute path is also indexed.
+    var seen = Object.create(null)
+    var entries = _localEntries.concat(_indexedEntries).filter(function(e) {
+      if (seen[e.path]) return false
+      seen[e.path] = true
+      return true
+    })
+    for (var i = 0; i < entries.length; ++i) {
+      var e = entries[i]
+      var name = e.name.toLowerCase()
+      e._scope = e.path.indexOf(prefix) === 0 ? 0 : 1
+      e._score = name === q ? 0 : name.indexOf(q) === 0 ? 1 : name.indexOf(q) >= 0 ? 2 : 3
+    }
+    entries.sort(function(a, b) {
+      if (a._scope !== b._scope) return a._scope - b._scope
+      if (a._score !== b._score) return a._score - b._score
+      if (a.path.length !== b.path.length) return a.path.length - b.path.length
       return a.name.localeCompare(b.name)
     })
-    var truncated = scored.length > backend.maxResults
-    return {
-      "entries": scored.slice(0, backend.maxResults),
-      "truncated": truncated
-    }
+    backend.results(entries.slice(0, maxResults), _localTruncated || entries.length > maxResults, _localDone && _indexDone)
   }
 }

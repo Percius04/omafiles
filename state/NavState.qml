@@ -16,6 +16,8 @@ import Omafiles.Backend as Backend
 // restoration via Persistence), like TabsState.
 QtObject {
   property string currentPath: Backend.Env.get("HOME")
+  // Also fires on same-path navigation/tab restoration, before listing changes.
+  signal navigationStarted()
 
   // Listing of the current folder, already sorted (DirectoryModel in C++
   // returns it by naturalCompare; logic/ only re-sorts if the user requested
@@ -54,8 +56,8 @@ QtObject {
   // expanded; the search field is visible). Reused as an
   // "expanded" flag to not duplicate state -- there is no separate searchExpanded.
   property bool searching: false
-  // A recursive search (SearchWorker) is in flight -- triggers the magnifier's
-  // spinner. It is set in runDeepSearch() and cleared in onResults/restore.
+  // An applicable search source is still in flight -- triggers the magnifier's
+  // spinner. Cleared only when local + index finish (content: local only), or cancel.
   property bool searchBusy: false
   // The recursive search was cut to the first 200 results (a warning to the
   // user that items are missing; see SearchOps/search-recursive.sh).

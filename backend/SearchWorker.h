@@ -9,18 +9,20 @@
 #include <qqmlregistration.h>
 
 // Native recursive search. Replacement for
-// search-recursive.sh: walks `root` in depth, filters by substring
+// search-recursive.sh: walks `root` breadth first, filters by substring
 // (case-insensitive) over the file/folder NAME, skips
-// hidden ones unless showHidden, and returns up to 201 entries with the same
+// hidden ones unless showHidden, prunes known dependency/cache contents, and
+// returns the best 200 entries with the same
 // shape as DirectoryModel ({type,name,size,mtime,link}) -- `name` is the path
 // RELATIVE to root, so the rest of the code (join with currentPath,
 // rename, delete, open...) works the same as with the script.
 //
 // Async (QThreadPool) and cancelable: each search() opens a "generation"; a
 // new search or cancel() invalidates the previous one (neither walks too much
-// nor emits obsolete results). 201 are requested on purpose -- results() marks
-// truncated=true if there were more than 200 and trims to 200, just like the
-// script's contract (the QML side warns of an incomplete list).
+// nor emits obsolete results). Filename search keeps a ranked, bounded top
+// 200 while continuing the cancellable walk; any further match sets truncated.
+// Content search uses the existing 201st-match sentinel and trims to 200.
+// Delivery rechecks the generation on the receiver thread as well as enqueue.
 //
 // Instantiable (QML_ELEMENT, like DirectoryModel/ProcessRunner): SearchOps
 // has its own instance. No dependency on Quickshell.
@@ -48,8 +50,11 @@ public:
 
 signals:
   // Results of the last active search. `entries` are objects
-  // {type,name,size,mtime,link}; `truncated` = there were more than 200 matches.
+  // {type,name,size,mtime,link}; `truncated` = more than 200 matches.
+  // Legacy final-only signal, retained for existing callers/selfchecks.
   void results(const QVariantList &entries, bool truncated);
+  // Progressive name snapshots; content emits one complete=true snapshot.
+  void snapshot(const QVariantList &entries, bool truncated, bool complete);
 
 private:
   // Generation of the active search. search() increments and captures it;

@@ -39,11 +39,13 @@ Under the hood it's a thin QML front-end over a shared **C++ backend** (`Omafile
 - Switching is instant and pixel-exact: a panel comes back exactly where you left it, down to the scroll offset.
 - New panels: `Ctrl+T` or `Ctrl+\`. Close the active panel: `Ctrl+W` (or `Escape` when nothing else is open). Cycle: `Ctrl+Tab`.
 
-### Global indexed search
+### Global filename search
 
-- Search files across the whole system by name (`/` or `Ctrl+F`), backed by the system index — Tracker (`tracker3`) → `plocate`/`locate`, falling back to a native recursive walk from the current folder when no index is installed.
-- Results are ranked by relevance (exact → prefix → substring → path-only), and opening one **reveals** it: a folder is entered, a file jumps to its folder with it selected — like Spotlight, not a blind launch.
-- Search is **per panel**: it stays open in the panel where you started it and doesn't leak into the others.
+- Search by name (`/` or `Ctrl+F`) combines an **always-live scan of the current folder and its subfolders** with the system-wide index — Tracker (`tracker3`) → `plocate`/`locate` — in parallel. Fresh local files can appear even when the index already returns other matches; without an index, the local scan still works.
+- Results are deduplicated by absolute path, preferring live metadata, and ranked **current subtree first**, then by relevance (exact → prefix → substring → path-only). Opening one **reveals** it: a folder is entered, a file jumps to its folder with it selected — like Spotlight, not a blind launch.
+- The cancellable local walk is breadth-first and publishes progressive snapshots, retaining only its best 200 matches; the merged list is also capped at 200. The cap bounds retained matches, not traversal time. Directory symlinks are not followed, and `node_modules`, `.cache`, `.git`, `.pnpm`, `.cargo`, and `.rustup` contents are skipped even with hidden files enabled.
+- **Scope:** live freshness applies only within the current subtree, subject to the exclusions above; results elsewhere still depend on index coverage and freshness. This is not a live scan of the whole system.
+- Search is **per panel**: it stays open in the panel where you started it and doesn't leak into the others. Progressive updates preserve selection and scroll, and the busy indicator stays active until both sources finish.
 
 ### Content search (`content:`)
 
@@ -292,7 +294,7 @@ Everything below is truly optional in the sense that OmaFiles starts and runs fi
 
 | Tool | Enables |
 | --- | --- |
-| **tracker3** / **plocate** | Faster global filename search (otherwise falls back to the built-in recursive search engine) |
+| **tracker3** / **plocate** / **locate** | Indexed filename results beyond the current subtree; the live current-folder/subfolder scan always runs, with or without an index |
 | **ffmpegthumbnailer** | Video thumbnails |
 | **gvfs** / **gvfs-smb** | Network locations (SFTP, FTP, WebDAV, SMB) |
 | **python-gobject (Gio)** | D-Bus desktop integration and FileChooser portal support — see the note above, this one silently no-ops rather than degrading gracefully |

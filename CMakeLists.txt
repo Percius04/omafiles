@@ -234,3 +234,18 @@ add_custom_target(selfcheck
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   USES_TERMINAL
   COMMENT "Running omafiles --selfcheck")
+
+# Opt-in: tests are run through tests/run-search-tests.py, never the unsafe
+# selfcheck target above. Compile the actual native worker, not a test double.
+option(OMAFILES_BUILD_SEARCH_TESTS "Build native search regression tests" OFF)
+if(OMAFILES_BUILD_SEARCH_TESTS)
+  find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
+  qt_add_executable(hybrid-search-qml-tests tests/hybrid-search-qml-tests.cpp)
+  target_link_libraries(hybrid-search-qml-tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml)
+  add_dependencies(hybrid-search-qml-tests omafiles-backend)
+  qt_add_executable(search-worker-tests
+    tests/test-search-worker.cpp backend/SearchWorker.cpp backend/SearchWorker.h)
+  target_compile_definitions(search-worker-tests PRIVATE OMAFILES_SEARCH_TEST_GATE)
+  target_include_directories(search-worker-tests PRIVATE backend)
+  target_link_libraries(search-worker-tests PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+endif()

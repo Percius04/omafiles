@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+* **Fresh local filename search:** Search the current folder and subfolders alongside indexed global results, with progressive local-first deduplication, a 200-result cap, cancellation, and selection/scroll preservation. Busy state waits for both sources; stale results cannot cross query or navigation changes.
+
 ## [1.2.0] - 2026-08-21
 
 ### Grid & List view modes
